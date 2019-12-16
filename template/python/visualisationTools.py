@@ -28,9 +28,16 @@ class timeCourseVisualiser:
             runningList.append(dataFrame)
         self.longData = pd.concat(runningList,ignore_index=True)
     
-    def multiPlot(self):
+    def multiPlot(self,indexSelect=None):
         grid = sns.FacetGrid(self.longData, col="variable")
-        grid.map(sns.lineplot,data=self.longData,x="Time",y="value")
+        if indexSelect is None:
+            grid.map(sns.lineplot,data=self.longData,x="Time",y="value")
+        else:
+            if not isinstance(indexSelect, list):
+                indexSelect = [indexSelect]
+            df=self.longData.loc[self.longData['index'].isin(indexSelect)]
+            grid.map(sns.lineplot,data=self.longData,x="Time",y="value",
+                     hue="index")
         
 class parameterEstimationVisualiser:
     def __init__(self,data):
@@ -64,15 +71,30 @@ class parameterEstimationVisualiser:
         self.RSSData = pd.concat(RSSList,ignore_index=True)
         self.wideData = pd.concat(wideList,ignore_index=True)
         
-    def violinPlot(self,indexSelect=None):
-        if indexSelect is None:
-            sns.violinplot(x="variable", y="value", data=self.BPData)
-        else:
+    def violinPlot(self,indexSelect=None,paramSelect=None):
+        df=self.BPData
+        if indexSelect is not None:
             if not isinstance(indexSelect, list):
                 indexSelect = [indexSelect]
-            df=self.BPData.loc[self.BPData['index'].isin(indexSelect)]
-            sns.violinplot(x="variable", y="value", data=df,
-                           hue="index", split=True)
+            df = df.loc[df['index'].isin(indexSelect)]
+        if paramSelect is not None:
+            if not isinstance(paramSelect, list):
+                paramSelect = [paramSelect]
+            df = df.loc[df['variable'].isin(paramSelect)]
+        if indexSelect is None:
+            if paramSelect is None:
+                sns.violinplot(x="variable", y="value", data=df, cut=0)
+            else:
+                sns.violinplot(x="variable", y="value", data=df,
+                               order=paramSelect, cut=0)
+        else:
+            if paramSelect is None:
+                sns.violinplot(x="variable", y="value", data=df,
+                               hue="index", split=True, cut=0)
+            else:
+                sns.violinplot(x="variable", y="value", data=df,
+                               hue="index", split=True, order=paramSelect,
+                               cut=0)
             
     def waterFall(self):
-        sns.lineplot(data=self.RSSData,x="subIndex",y="RSS")
+        sns.lineplot(data=self.RSSData,x="subIndex",y="RSS",hue="index")

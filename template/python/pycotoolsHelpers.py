@@ -121,7 +121,8 @@ class modelRunner:
 
     def runParamiterEstimation(self,expDataFP,PEName=None,
                                copyNum=1,estimateIC=True,estimatedVar=None,
-                               prefix='_',rocket=False):
+                               prefix='_',rocket=False,upperParamBound=None,
+                               lowerParamBound=None):
         if PEName is None:
             copasi_filename = os.path.join(self.run_dir,
                                            'paramiterEstimation.cps')
@@ -155,9 +156,13 @@ class modelRunner:
             context.set('separator', ',')
             if estimatedVar is not None:
                 context.set('prefix', prefix)
-            context.set('method', 'genetic_algorithm')
-            context.set('population_size', 50)
-            context.set('number_of_generations', 300)
+            if upperParamBound is not None:
+                context.set('upper_bound', upperParamBound)
+            if lowerParamBound is not None:
+                context.set('lower_bound', lowerParamBound)
+            context.set('method', 'particle_swarm')
+            context.set('swarm_size', 75)
+            context.set('iteration_limit', 3000)
             context.set('run_mode', runMode) 
             context.set('pe_number', 1) 
             context.set('copy_number', copyNum) 
