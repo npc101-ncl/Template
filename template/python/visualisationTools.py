@@ -8,8 +8,29 @@ Created on Sat Dec 14 01:00:04 2019
 
 import seaborn as sns
 import pandas as pd
+import matplotlib.pyplot as plt
+import math
 
 sns.set(context='paper')
+
+def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
+                       maxRunLength=6):
+    outerList=[]
+    innerList=[]
+    lastVal=None
+    for index, value in mySerise.sort_values(ascending=False).items():
+        if lastVal is None:
+            innerList.append(index)
+            lastVal=value
+            continue
+        if (lastVal*relativeScaleBreakPoint>value or 
+            len(innerList)==maxRunLength):
+            outerList.append(innerList)
+            innerList=[]
+        else:
+            innerList.append(index)
+        lastVal=value
+    return outerList
 
 class timeCourseVisualiser:
     def __init__(self,data):
@@ -29,6 +50,7 @@ class timeCourseVisualiser:
         self.longData = pd.concat(runningList,ignore_index=True)
     
     def multiPlot(self,indexSelect=None):
+        plt.figure()
         grid = sns.FacetGrid(self.longData, col="variable")
         if indexSelect is None:
             grid.map(sns.lineplot,data=self.longData,x="Time",y="value")
@@ -36,7 +58,7 @@ class timeCourseVisualiser:
             if not isinstance(indexSelect, list):
                 indexSelect = [indexSelect]
             df=self.longData.loc[self.longData['index'].isin(indexSelect)]
-            grid.map(sns.lineplot,data=self.longData,x="Time",y="value",
+            grid.map(sns.lineplot,data=df,x="Time",y="value",
                      hue="index")
         
 class parameterEstimationVisualiser:
@@ -71,16 +93,35 @@ class parameterEstimationVisualiser:
         self.RSSData = pd.concat(RSSList,ignore_index=True)
         self.wideData = pd.concat(wideList,ignore_index=True)
         
-    def violinPlot(self,indexSelect=None,paramSelect=None):
+    def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None):
         df=self.BPData
         if indexSelect is not None:
             if not isinstance(indexSelect, list):
                 indexSelect = [indexSelect]
             df = df.loc[df['index'].isin(indexSelect)]
+        if RSSSelect is not None:
+            if not isinstance(RSSSelect, list):
+                RSSSelect=[RSSSelect]
+            if indexSelect is None:
+                if len(indexSelect)!=1:
+                    print("length of lists RSSSelect and index must match")
+                    return False
+                else:
+                    df = df.loc[df['RSS']<=RSSSelect[0]]
+            else:
+                if len(RSSSelect)!=len(indexSelect):
+                    print("length of lists RSSSelect and index must match")
+                    return False
+                else:
+                    for i in range(len(indexSelect)):
+                        df = df.loc[df['RSS']<=RSSSelect[i] or
+                                    df['index']!=indexSelect[i]]
         if paramSelect is not None:
             if not isinstance(paramSelect, list):
                 paramSelect = [paramSelect]
             df = df.loc[df['variable'].isin(paramSelect)]
+        df = df.loc[df['variable']!="RSS"]
+        plt.figure()
         if indexSelect is None:
             if paramSelect is None:
                 sns.violinplot(x="variable", y="value", data=df, cut=0)
@@ -97,4 +138,5 @@ class parameterEstimationVisualiser:
                                cut=0)
             
     def waterFall(self):
+        plt.figure()
         sns.lineplot(data=self.RSSData,x="subIndex",y="RSS",hue="index")

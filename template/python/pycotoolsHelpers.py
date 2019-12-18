@@ -119,16 +119,23 @@ class modelRunner:
             self.prefixAntString = replaceVariable(self.prefixAntString,
                                                    name,prefix+name)
 
+    # if you reuse the same PEName twise the results get over writen by
+    # the first
     def runParamiterEstimation(self,expDataFP,PEName=None,
                                copyNum=1,estimateIC=True,estimatedVar=None,
                                prefix='_',rocket=False,upperParamBound=None,
                                lowerParamBound=None):
         if PEName is None:
-            copasi_filename = os.path.join(self.run_dir,
-                                           'paramiterEstimation.cps')
+            i=0
+            nameFree=False
+            while not nameFree:
+                copasi_filename = os.path.join(self.run_dir,
+                                               'paramiterEstimation'+
+                                               str(i)+'.cps')
+                nameFree = not os.path.exists(copasi_filename)
         else:
             copasi_filename = os.path.join(self.run_dir, PEName)
-        
+    
         if estimatedVar is not None:
             self.genPrefixAntString(estimatedVar)
             self.recentModel = model.loada(self.prefixAntString,
