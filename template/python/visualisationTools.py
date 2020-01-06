@@ -49,17 +49,33 @@ class timeCourseVisualiser:
             runningList.append(dataFrame)
         self.longData = pd.concat(runningList,ignore_index=True)
     
-    def multiPlot(self,indexSelect=None):
-        plt.figure()
-        grid = sns.FacetGrid(self.longData, col="variable")
-        if indexSelect is None:
-            grid.map(sns.lineplot,data=self.longData,x="Time",y="value")
-        else:
+    def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
+                  compLines=None):
+        df = self.longData
+        if varSelect is not None:
+            if not isinstance(varSelect, list):
+                varSelect = [varSelect]
+            df = df[df['variable'].isin(varSelect)]
+        if indexSelect is not None:
             if not isinstance(indexSelect, list):
                 indexSelect = [indexSelect]
-            df=self.longData.loc[self.longData['index'].isin(indexSelect)]
-            grid.map(sns.lineplot,data=df,x="Time",y="value",
-                     hue="index")
+            df=df.loc[df['index'].isin(indexSelect)]
+        indexes = list(df['index'].unique())
+        colors = sns.husl_palette(len(indexes)).as_hex()
+        if compLines is not None:
+            compVars=list(compLines.columns)
+            dfB = compLines.copy()
+            dfB["Time"]=dfB.index
+            dfB = pd.melt(dfB,id_vars=["Time"],
+                          value_vars=compVars)
+            dfB["index"]=-1
+            df = pd.concat([dfB,df],ignore_index=True)
+            colors.append("#000000")
+            indexes.append(-1)
+        #colors = dict(zip(indexes, colors))
+        grid = sns.FacetGrid(df, col="variable", col_wrap=wrapNumber, 
+                             palette=colors)
+        grid.map(sns.lineplot,"Time","value","index")
         
 class parameterEstimationVisualiser:
     def __init__(self,data):
@@ -71,13 +87,11 @@ class parameterEstimationVisualiser:
         for i in range(len(data)):
             df = data[i][list(data[i])[0]].copy()
             theColumns=list(df.columns)
-            if "RSS" in theColumns:
-                df=df.drop(columns="RSS")
             if "" in theColumns:
                 df=df.drop(columns="")
-            theColumns=list(df.columns)
+            theColumns=list(df.columns).remove('RSS')
             df['subIndex'] = df.index
-            df=pd.melt(df,id_vars=['subIndex'],
+            df=pd.melt(df,id_vars=['subIndex','RSS'],
                        value_vars=theColumns)
             df['index']=i
             BPList.append(df)
@@ -95,32 +109,23 @@ class parameterEstimationVisualiser:
         
     def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None):
         df=self.BPData
+        if RSSSelect is not None:
+            if not isinstance(RSSSelect, list):
+                RSSSelect = [RSSSelect]
+            if indexSelect is None:
+                df = df.loc[df['RSS']<=RSSSelect[0]]
         if indexSelect is not None:
             if not isinstance(indexSelect, list):
                 indexSelect = [indexSelect]
+            if RSSSelect is not None:
+                for i in range(len(indexSelect)):
+                    df = df.loc[(df['RSS']<=RSSSelect[i]) |
+                            (df['index']!=indexSelect[i])]
             df = df.loc[df['index'].isin(indexSelect)]
-        if RSSSelect is not None:
-            if not isinstance(RSSSelect, list):
-                RSSSelect=[RSSSelect]
-            if indexSelect is None:
-                if len(indexSelect)!=1:
-                    print("length of lists RSSSelect and index must match")
-                    return False
-                else:
-                    df = df.loc[df['RSS']<=RSSSelect[0]]
-            else:
-                if len(RSSSelect)!=len(indexSelect):
-                    print("length of lists RSSSelect and index must match")
-                    return False
-                else:
-                    for i in range(len(indexSelect)):
-                        df = df.loc[df['RSS']<=RSSSelect[i] or
-                                    df['index']!=indexSelect[i]]
         if paramSelect is not None:
             if not isinstance(paramSelect, list):
                 paramSelect = [paramSelect]
             df = df.loc[df['variable'].isin(paramSelect)]
-        df = df.loc[df['variable']!="RSS"]
         plt.figure()
         if indexSelect is None:
             if paramSelect is None:

@@ -16,23 +16,36 @@ data_dir = os.path.join(working_dir, 'data')
 
 f = open(os.path.join(data_dir,'test1data.p'), "rb" )
 data = pickle.load(f)
-file.close()
+f.close()
 
 f = open(os.path.join(data_dir,'test1params0.p'), "rb" )
 params0 = pickle.load(f)
-file.close()
+f.close()
 
 f = open(os.path.join(data_dir,'test1params1.p'), "rb" )
 params1 = pickle.load(f)
-file.close()
+f.close()
 
-print(data)
+f = open(os.path.join(data_dir,'test1data0.p'), "rb" )
+data0 = pickle.load(f)
+f.close()
+
+f = open(os.path.join(data_dir,'test1data1.p'), "rb" )
+data1 = pickle.load(f)
+f.close()
+
+print(data0)
+print(data1)
 print(params0)
 print(params1)
 
-myTCV = timeCourseVisualiser(data)
+myTCV0 = timeCourseVisualiser(data0)
 
-myTCV.multiPlot()
+myTCV0.multiPlot()
+
+myTCV1 = timeCourseVisualiser(data1)
+
+myTCV1.multiPlot()
 
 PEVis = parameterEstimationVisualiser([params0,params1])
 

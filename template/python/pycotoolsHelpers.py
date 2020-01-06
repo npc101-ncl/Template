@@ -112,6 +112,34 @@ class modelRunner:
             '''
         else:
             self.antString=antString
+        self.methodDict = {
+                "particle_swarm_default":{
+                        "method":"particle_swarm",
+                        "swarm_size":50,
+                        "iteration_limit":2000},
+                "particle_swarm_rigorous":{
+                        "method":"particle_swarm",
+                        "swarm_size":100,
+                        "iteration_limit":4000}}
+            
+    def genPathCopasi(self,nameBase,suffix=".cps"):
+        i=0
+        nameFree=False
+        while not nameFree:
+            copasi_filename = os.path.join(self.run_dir,nameBase+
+                                           str(i)+suffix)
+            nameFree = not os.path.exists(copasi_filename)
+            i=i+1
+        return copasi_filename
+    
+    def clearRunDirectory(self):
+        for root, dirs, files in os.walk(self.run_dir, topdown=False):
+            for name in files:
+                if name.lower().endswith(('.cps', '.txt', '.sbml', '.csv')):
+                    os.remove(os.path.join(root, name))
+            for name in dirs:
+                if len(os.listdir(os.path.join(root, name)))==0:
+                    os.rmdir(os.path.join(root, name))
             
     def genPrefixAntString(self,estimatedVar,prefix="_"):
         self.prefixAntString = self.antString
@@ -124,18 +152,14 @@ class modelRunner:
     def runParamiterEstimation(self,expDataFP,PEName=None,
                                copyNum=1,estimateIC=True,estimatedVar=None,
                                prefix='_',rocket=False,upperParamBound=None,
-                               lowerParamBound=None):
+                               lowerParamBound=None,
+                               method="particle_swarm_default",
+                               overrideParam=None):
         if PEName is None:
-            i=0
-            nameFree=False
-            while not nameFree:
-                copasi_filename = os.path.join(self.run_dir,
-                                               'paramiterEstimation'+
-                                               str(i)+'.cps')
-                nameFree = not os.path.exists(copasi_filename)
+            copasi_filename = self.genPathCopasi("paramiterEstimation")
         else:
             copasi_filename = os.path.join(self.run_dir, PEName)
-    
+        
         if estimatedVar is not None:
             self.genPrefixAntString(estimatedVar)
             self.recentModel = model.loada(self.prefixAntString,
@@ -145,6 +169,10 @@ class modelRunner:
                                          colRenameDict)
         else:
             self.recentModel = model.loada(self.antString, copasi_filename)
+        if overrideParam is not None:
+            model.InsertParameters(self.recentModel,
+                                   parameter_dict=overrideParam,
+                                   inplace=True)
         
         if estimateIC:
             PEParams='gm'
@@ -167,14 +195,13 @@ class modelRunner:
                 context.set('upper_bound', upperParamBound)
             if lowerParamBound is not None:
                 context.set('lower_bound', lowerParamBound)
-            context.set('method', 'particle_swarm')
-            context.set('swarm_size', 75)
-            context.set('iteration_limit', 3000)
+            for key, value in self.methodDict[method].items():
+                context.set(key, value)
             context.set('run_mode', runMode) 
             context.set('pe_number', 1) 
             context.set('copy_number', copyNum) 
             config = context.get_config()
-            
+        
         self.recentPE = tasks.ParameterEstimation(config)
         doneNum=0
         while copyNum>doneNum:
@@ -200,28 +227,67 @@ class modelRunner:
         return return_data
     
     def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
-                      PEName=None,adjustParams=None,subSet=None):
-        if PEName is None:
-            copasi_filename = os.path.join(self.run_dir,
-                                           'timeCourse.cps')
-        else:
-            copasi_filename = os.path.join(self.run_dir, PEName)
-            
-        self.recentModel = model.loada(self.antString, copasi_filename)
+                      TCName=None,adjustParams=None,subSet=None,
+                      rocket=False):
         if adjustParams is not None:
             if subSet is None:
                 subSet = range(len(adjustParams.index))
             results = []
-            for setIndex in subSet:
-                model.InsertParameters(self.recentModel,df=adjustParams,
-                                       index=setIndex,inplace=True)
-                self.recentTimeCourse = tasks.TimeCourse(self.recentModel,
-                                                         end=duration,
-                                                         step_size=stepSize,
-                                                         intervals=intervals)
-                results.append(viz.Parse(self.recentTimeCourse).data.copy())
+            if rocket:
+                timeCourses = []
+                for setIndex in subSet:
+                    copasi_filename = self.genPathCopasi("timeCourse")
+                    self.recentModel = model.loada(self.antString,
+                                                   copasi_filename)
+                    model.InsertParameters(self.recentModel,
+                                           df=adjustParams,
+                                           index=setIndex,inplace=True)
+                    self.recentTimeCourse = tasks.TimeCourse(
+                            self.recentModel,end=duration,
+                            step_size=stepSize,intervals=intervals,
+                            run=False)
+                    timeCourses.append(self.recentTimeCourse)
+                    myScriptName = self.genPathCopasi("TCSlurmScript",
+                                                      suffix = ".sh")
+                    shellString = ("#!/bin/bash\nCopasiSE "+
+                                   copasi_filename)
+                    f = open(myScriptName, 'w')
+                    f.write(shellString)
+                    f.close()
+                    os.system("sbatch "+myScriptName)
+                for theTimeCourse in timeCourses:
+                    sucsessful=False
+                    while not sucsessful:
+                        try:
+                            parse_object = viz.Parse(theTimeCourse)
+                            results.append(parse_object.data.copy())
+                            sucsessful = True
+                        except:
+                            time.sleep(10)
+                return results
+            else:
+                if TCName is None:
+                    copasi_filename = self.genPathCopasi("timeCourse")
+                else:
+                    copasi_filename = os.path.join(self.run_dir, TCName)
+                self.recentModel = model.loada(self.antString,
+                                               copasi_filename)
+                for setIndex in subSet:
+                    model.InsertParameters(self.recentModel,df=adjustParams,
+                                           index=setIndex,inplace=True)
+                    self.recentTimeCourse = tasks.TimeCourse(
+                            self.recentModel,end=duration,
+                            step_size=stepSize,intervals=intervals)
+                    results.append(viz.Parse(
+                            self.recentTimeCourse).data.copy())
             return results
         else:
+            if TCName is None:
+                copasi_filename = self.genPathCopasi("timeCourse")
+            else:
+                copasi_filename = os.path.join(self.run_dir, TCName)
+                
+            self.recentModel = model.loada(self.antString, copasi_filename)
             self.recentTimeCourse = tasks.TimeCourse(self.recentModel,
                                                      end=duration,
                                                      step_size=stepSize,

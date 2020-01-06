@@ -18,6 +18,7 @@ if not os.path.isdir(data_dir):
 dataPath = os.path.join(data_dir, 'test2.csv')
 
 #addCopasiPath("/Applications/copasi")
+rocket=True
 
 test_string="""
 model test_model()
@@ -34,12 +35,12 @@ test_data.to_csv(dataPath)
 myModel = modelRunner(test_string,os.path.join(working_dir, 'copasiRuns',
                                                'testRun2'))
 
-params0 = myModel.runParamiterEstimation(dataPath,copyNum=2,rocket=True)
+params0 = myModel.runParamiterEstimation(dataPath,copyNum=2,rocket=rocket)
 
 reactions = extractAntReactions(test_string)
 
 params1 = myModel.runParamiterEstimation(dataPath,estimatedVar=["A"],
-                                           copyNum=2,rocket=True)
+                                           copyNum=2,rocket=rocket)
 
 data = myModel.runTimeCourse(1,adjustParams=params1[list(params1)[0]])
 
@@ -57,4 +58,22 @@ file.close()
 
 file = open(os.path.join(data_dir,'test1params1.p'), 'wb')
 pickle.dump(params1, file)
+file.close()
+
+data0 = myModel.runTimeCourse(1,adjustParams=params0[list(params0)[0]],
+                                                     rocket=rocket)
+
+print(data0)
+
+data1 = myModel.runTimeCourse(1,adjustParams=params1[list(params1)[0]],
+                                                     rocket=rocket)
+
+print(data1)
+
+file = open(os.path.join(data_dir,'test1data0.p'), 'wb')
+pickle.dump(data0, file)
+file.close()
+
+file = open(os.path.join(data_dir,'test1data1.p'), 'wb')
+pickle.dump(data1, file)
 file.close()

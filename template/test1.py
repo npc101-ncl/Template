@@ -54,14 +54,16 @@ PEVis.violinPlot(indexSelect=[0,1])
 
 PEVis.waterFall()
 
-file = open('test1data.p', 'wb')
+file = open(os.path.join(data_dir,'test1data.p'), 'wb')
 pickle.dump(data, file)
 file.close()
 
-file = open('test1params0.p', 'wb')
+file = open(os.path.join(data_dir,'test1params0.p'), 'wb')
 pickle.dump(params0, file)
 file.close()
 
-file = open('test1params1.p', 'wb')
+file = open(os.path.join(data_dir,'test1params1.p'), 'wb')
 pickle.dump(params1, file)
 file.close()
+
+myModel.clearRunDirectory()
