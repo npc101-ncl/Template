@@ -9,6 +9,7 @@ Created on Thu Dec 12 14:00:40 2019
 import site, os, time, re
 from pycotools3 import model, tasks, viz
 import pandas as pd
+import logging
 
 def addCopasiPath(copasiPath):
     if not re.search(copasiPath, os.environ["PATH"]):
@@ -68,20 +69,28 @@ def replaceVariable(theString,oldName,newName):
     return newName.join(re.split('(?<![\w_])'+oldName+'(?![\w_])',
                                  theString))
     
-def renameCSVColumns(CSVPathOrList,targetDir,renameDict):
+def renameCSVColumns(CSVPathOrList,targetDir,renameDict,indepToAdd=None):
     if not isinstance(CSVPathOrList, list):
         CSVPathOrList = [CSVPathOrList]
+    if not None:
+        if not isinstance(indepToAdd, list):
+            indepToAdd = [indepToAdd]
+        if len(CSVPathOrList)!=len(indepToAdd):
+            print("each data set needs independed variables if you use them")
+            return None
     outList=[]
-    for CSVPath in CSVPathOrList:
+    for CSVPath, i in zip(CSVPathOrList,range(len(CSVPathOrList))):
         CSVData = pd.read_csv(CSVPath)
         CSVData=CSVData.rename(columns=renameDict)
+        if indepToAdd is not None:
+            for myKey, myVal in indepToAdd[i].items():
+                CSVData[myKey+"_indep"]=myVal
         newPath = os.path.join(targetDir,os.path.split(CSVPath)[1])
         CSVData.to_csv(newPath,index=False)
         outList.append(newPath)
     if len(outList)==1:
         outList=outList[0]
     return outList
-            
   
 class modelRunner:
     def __init__(self, antString=None, run_dir=None):
@@ -154,7 +163,8 @@ class modelRunner:
                                prefix='_',rocket=False,upperParamBound=None,
                                lowerParamBound=None,
                                method="particle_swarm_default",
-                               overrideParam=None):
+                               overrideParam=None,
+                               indepToAdd=None, endTime=None):
         if PEName is None:
             copasi_filename = self.genPathCopasi("paramiterEstimation")
         else:
@@ -166,7 +176,8 @@ class modelRunner:
                                            copasi_filename)
             colRenameDict = {i:(prefix+i) for i in estimatedVar}
             expDataFP = renameCSVColumns(expDataFP,self.run_dir,
-                                         colRenameDict)
+                                         colRenameDict,
+                                         indepToAdd=indepToAdd)
         else:
             self.recentModel = model.loada(self.antString, copasi_filename)
         if overrideParam is not None:
@@ -204,6 +215,9 @@ class modelRunner:
         
         self.recentPE = tasks.ParameterEstimation(config)
         doneNum=0
+        lastLoop=0
+        logger = logging.getLogger()
+        logger.disabled = True
         while copyNum>doneNum:
             try:
                 parse_object = viz.Parse(self.recentPE)
@@ -212,9 +226,14 @@ class modelRunner:
                     doneNum = parse_object[list(parse_object)[0]].shape[0]
             except:
                 time.sleep(10)
-            if rocket:
+            if rocket & lastLoop<doneNum:
                 print(str(doneNum) + ' of ' + str(copyNum) + ' done')
+                lastLoop = doneNum
+            if endTime is not None and rocket:
+                if endTime<=time.time():
+                    break
         
+        logger.disabled = False
         if estimatedVar is not None:
             colRenameDict = {(prefix+i):i for i in estimatedVar}
         return_data={}

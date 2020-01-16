@@ -3,3 +3,7 @@
 *.txt
 *.p
 *.pyc
+*.out
+*.png
+*.ini
+template/.DS_Store
