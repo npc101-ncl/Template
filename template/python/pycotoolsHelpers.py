@@ -129,6 +129,10 @@ class modelRunner:
                 "particle_swarm_rigorous":{
                         "method":"particle_swarm",
                         "swarm_size":100,
+                        "iteration_limit":4000},
+                "particle_swarm_aggressive":{
+                        "method":"particle_swarm",
+                        "swarm_size":200,
                         "iteration_limit":4000}}
             
     def genPathCopasi(self,nameBase,suffix=".cps"):

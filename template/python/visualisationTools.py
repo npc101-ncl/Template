@@ -13,6 +13,21 @@ import math
 
 sns.set(context='paper')
 
+def getTCSelectionMaxes(TCList,selectionList=None,varSelection=None,
+                       valRemove=[]):
+    if selectionList is None:
+        maxes = [course.max() for course in TCList]
+    else:
+        maxes = [TCList[selection].max() for selection in selectionList]
+    maxes = pd.DataFrame(maxes).max()
+    maxes = maxes.drop(labels=['Time'])
+    if varSelection is not None:
+        maxes = maxes.filter(items=varSelection)
+    maxes = maxes.sort_values(ascending=False)
+    for value in valRemove:
+        maxes = maxes[maxes!=value]
+    return maxes
+
 def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
                        maxRunLength=6):
     outerList=[]
@@ -30,6 +45,7 @@ def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
         else:
             innerList.append(index)
         lastVal=value
+        outerList = [myList for myList in outerList if len(myList)>=1]
     return outerList
 
 class timeCourseVisualiser:
@@ -50,7 +66,7 @@ class timeCourseVisualiser:
         self.longData = pd.concat(runningList,ignore_index=True)
     
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
-                  compLines=None):
+                  compLines=None, save = None):
         df = self.longData
         if varSelect is not None:
             if not isinstance(varSelect, list):
@@ -76,6 +92,8 @@ class timeCourseVisualiser:
         grid = sns.FacetGrid(df, col="variable", col_wrap=wrapNumber, 
                              palette=colors)
         grid.map(sns.lineplot,"Time","value","index")
+        if save is not None:
+            grid.savefig(save)
         
 class parameterEstimationVisualiser:
     def __init__(self,data):
@@ -107,7 +125,8 @@ class parameterEstimationVisualiser:
         self.RSSData = pd.concat(RSSList,ignore_index=True)
         self.wideData = pd.concat(wideList,ignore_index=True)
         
-    def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None):
+    def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None,
+                   save = None):
         df=self.BPData
         if RSSSelect is not None:
             if not isinstance(RSSSelect, list):
@@ -129,19 +148,23 @@ class parameterEstimationVisualiser:
         plt.figure()
         if indexSelect is None:
             if paramSelect is None:
-                sns.violinplot(x="variable", y="value", data=df, cut=0)
+                vp = sns.violinplot(x="variable", y="value", data=df, cut=0)
             else:
-                sns.violinplot(x="variable", y="value", data=df,
-                               order=paramSelect, cut=0)
+                vp = sns.violinplot(x="variable", y="value", data=df,
+                                    order=paramSelect, cut=0)
         else:
             if paramSelect is None:
-                sns.violinplot(x="variable", y="value", data=df,
-                               hue="index", split=True, cut=0)
+                vp = sns.violinplot(x="variable", y="value", data=df,
+                                    hue="index", split=True, cut=0)
             else:
-                sns.violinplot(x="variable", y="value", data=df,
-                               hue="index", split=True, order=paramSelect,
-                               cut=0)
+                vp = sns.violinplot(x="variable", y="value", data=df,
+                                    hue="index", split=True,
+                                    order=paramSelect, cut=0)
+        if save is not None:
+            vp.get_figure().savefig(save)
             
-    def waterFall(self):
+    def waterFall(self,save = None):
         plt.figure()
-        sns.lineplot(data=self.RSSData,x="subIndex",y="RSS",hue="index")
+        lp = sns.lineplot(data=self.RSSData,x="subIndex",y="RSS",hue="index")
+        if save is not None:
+            lp.get_figure().savefig(save)
