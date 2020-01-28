@@ -13,6 +13,15 @@ import math
 
 sns.set(context='paper')
 
+def GFID(myDict):
+    return (myDict[next(iter(myDict))])
+
+def trim_axs(axs, N):
+    axs = axs.flat
+    for ax in axs[N:]:
+        ax.remove()
+    return axs[:N]
+
 def getTCSelectionMaxes(TCList,selectionList=None,varSelection=None,
                        valRemove=[]):
     if selectionList is None:
@@ -65,7 +74,7 @@ class timeCourseVisualiser:
             runningList.append(dataFrame)
         self.longData = pd.concat(runningList,ignore_index=True)
     
-    def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
+    def multiPlot2(self,indexSelect=None,varSelect=None,wrapNumber=5,
                   compLines=None, save = None):
         df = self.longData
         if varSelect is not None:
@@ -94,6 +103,40 @@ class timeCourseVisualiser:
         grid.map(sns.lineplot,"Time","value","index")
         if save is not None:
             grid.savefig(save)
+            
+    def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
+                  compLines=None, save = None):
+        if compLines is not None:
+            compVars=list(compLines.columns)
+            dfB = compLines.copy()
+            dfB["Time"]=dfB.index
+            dfB = pd.melt(dfB,id_vars=["Time"],
+                          value_vars=compVars)
+        if len(varSelect)<wrapNumber:
+            cols = math.floor(math.sqrt(len(varSelect)))
+        else:
+            cols = wrapNumber
+        rows = math.ceil(len(varSelect)/cols)
+        fig, axs = plt.subplots(rows, cols, sharex=True, figsize=(12,10))
+        axs = trim_axs(axs, len(varSelect))
+        if indexSelect is not None:
+            myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect))
+        for ax, theVar in zip(axs, varSelect):
+            ax.set_title(theVar)
+            df = self.longData
+            df = df[df['variable']==theVar]
+            if indexSelect is not None:
+                for theIndex, i in zip(indexSelect,range(len(indexSelect))):
+                    df2 = df[df['index']==theIndex]
+                    ax.plot(df2["Time"], df2["value"],linestyle='solid',
+                            color=myColorMap(i))
+            if compLines is not None:
+                dfB2 = dfB[dfB['variable']==theVar]
+                ax.plot(dfB2["Time"], dfB2["value"],"ko")
+            ax.set_ylim([0, None])
+        fig.tight_layout()
+        if save is not None:
+            fig.savefig(save)
         
 class parameterEstimationVisualiser:
     def __init__(self,data):
@@ -126,7 +169,7 @@ class parameterEstimationVisualiser:
         self.wideData = pd.concat(wideList,ignore_index=True)
         
     def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None,
-                   save = None):
+                   save = None, indexNames=None):
         df=self.BPData
         if RSSSelect is not None:
             if not isinstance(RSSSelect, list):
@@ -146,6 +189,13 @@ class parameterEstimationVisualiser:
                 paramSelect = [paramSelect]
             df = df.loc[df['variable'].isin(paramSelect)]
         plt.figure()
+        if indexNames is not None:
+            if indexSelect is not None:
+                if len(indexSelect)!=len(indexNames):
+                    return None
+            df = df.copy()
+            df["index"] = df["index"].replace(
+                    dict(zip(indexSelect,indexNames)))
         if indexSelect is None:
             if paramSelect is None:
                 vp = sns.violinplot(x="variable", y="value", data=df, cut=0)
@@ -163,8 +213,13 @@ class parameterEstimationVisualiser:
         if save is not None:
             vp.get_figure().savefig(save)
             
-    def waterFall(self,save = None):
+    def waterFall(self,save = None, indexNames=None):
+        if indexNames is not None:
+            df = self.RSSData.copy()
+            df["index"] = [indexNames[x] for x in df["index"]]
+        else:
+            df = self.RSSData
         plt.figure()
-        lp = sns.lineplot(data=self.RSSData,x="subIndex",y="RSS",hue="index")
+        lp = sns.lineplot(data=df,x="subIndex",y="RSS",hue="index")
         if save is not None:
             lp.get_figure().savefig(save)
