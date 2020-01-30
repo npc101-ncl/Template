@@ -12,6 +12,15 @@ import pandas as pd
 import logging
 
 def addCopasiPath(copasiPath):
+    """adds the path to copasi to pythons working path
+    
+    Copasi is often not in the path python uses. This will check if its
+    not and add it.
+
+    Args:
+       copasiPath (str):  a string with the path to copasi on the
+       relivent machine.
+    """
     if not re.search(copasiPath, os.environ["PATH"]):
         os.environ["PATH"] += os.pathsep + copasiPath
         
@@ -66,10 +75,50 @@ def extractAntReactions(antString):
     return reactions
 
 def replaceVariable(theString,oldName,newName):
+    """changes the name of a variable in an antimony string
+    
+    It's helpfull to be able to rename variables in antimony strings on
+    the fly to utalise pycotools 'prefix' feature. This quick a dirty
+    methiod uses regular expresions to do this and works suprisingly
+    reliably.
+
+    Args:
+       theString (str):  the antimony string to parse
+       oldName (str):  name of variable to replace
+       newName (str):  name of variable to be the replacement
+
+    Returns:
+       str: the new modified antimony string.
+    """
     return newName.join(re.split('(?<![\w_])'+oldName+'(?![\w_])',
                                  theString))
     
 def renameCSVColumns(CSVPathOrList,targetDir,renameDict,indepToAdd=None):
+    """preproceses CSV data files for paramiter estimations
+    
+    Allows us to take one of more CSV files and rename their columns (for
+    example to take advndage of prefix feture) and optionaly add new
+    columns bearing the "_indep" sufix used to indicate a column should
+    be treated as an indipendent variable in the paramiter estimation.
+    
+    Args:
+       CSVPathOrList (str or list of str):  path or list of paths to csv
+           files to modify.
+       targetDir (str):  path to directory in which modified csv files
+           should be saved.
+       renameDict (dict):  dictioary of str key value pairs that indicate
+           the replacments to perform ineach csv files column names.
+       
+    Kwargs:
+       indepToAdd (dict or list of dicts): key value pairs representing
+           the independed variables that should be added to each data set
+           and the corisponding values they should be set to. Ordering of 
+           list should match CSVPathOrList.
+           
+    Returns:
+       List or str: path or list of paths to saved modified files.
+       (ordering will match CSVPathOrList)
+    """
     if not isinstance(CSVPathOrList, list):
         CSVPathOrList = [CSVPathOrList]
     if indepToAdd is not None:
@@ -136,6 +185,24 @@ class modelRunner:
                         "iteration_limit":4000}}
             
     def genPathCopasi(self,nameBase,suffix=".cps"):
+        """generates a copasi path that isn't being used yet
+        
+        we want to avoid acidently useing the same copasi file for difrent
+        calculations as it seems they don't always get overwriten. This
+        function generates a path to an unused file name in the classes
+        run directory by trying difrent sufixes.
+        
+        Args:
+           nameBase (str):  base to use in trying to creat file name.
+           
+        Kwargs:
+           suffix (str): optional string for file extention incase we ever
+               want to generate a path to non copasi file someday. defaults
+               to ".cps"
+               
+        Returns:
+           str: path to unused filename in objects run directory.
+        """
         i=0
         nameFree=False
         while not nameFree:
@@ -146,6 +213,14 @@ class modelRunner:
         return copasi_filename
     
     def clearRunDirectory(self):
+        """empties the objects run directory
+        
+        empties the objects run directory of all '.cps', '.txt', '.sbml',
+        '.csv' extention files and any empty directories. It seems
+        pycotools creats a lot of files in paramiter estimations it has a
+        habit of reusing. Clearing the run directory is one way to prevent
+        this.
+        """
         for root, dirs, files in os.walk(self.run_dir, topdown=False):
             for name in files:
                 if name.lower().endswith(('.cps', '.txt', '.sbml', '.csv')):
@@ -155,6 +230,20 @@ class modelRunner:
                     os.rmdir(os.path.join(root, name))
             
     def genPrefixAntString(self,estimatedVar,prefix="_"):
+        """Creates a new antimony string with added prefixs
+        
+        creats a new antimony string (stored seperatly from the refrence
+        string) where certain variables in the string have had a prefix
+        added. Pycotools uses prefixes to determine which variables should
+        be estimated in a parameter estimation.
+        
+        Args:
+           estimatedVar (list of str):  the variables in the antimony
+               string (and hence the model) that should be prefixed.
+               
+        Kwargs:
+           prefix (str): optionaly the prefix to add
+        """
         self.prefixAntString = self.antString
         for name in estimatedVar:
             self.prefixAntString = replaceVariable(self.prefixAntString,

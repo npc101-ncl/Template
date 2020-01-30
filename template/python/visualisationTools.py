@@ -14,9 +14,32 @@ import math
 sns.set(context='paper')
 
 def GFID(myDict):
+    """Get First in Dictionary
+    
+    A function to strip the first and assumed only eliment out of a
+    dictionary.
+    
+    Args:
+       myDict (Dict):  Dictioary wraped around single member.
+       
+    Returns:
+       what ever was in the dictionary.
+    """
     return (myDict[next(iter(myDict))])
 
 def trim_axs(axs, N):
+    """removes unwanted subplots from subplots function
+    
+    Convenience function used to remove unnneeded axises generated
+    by the subplots function and return them in a flat structure
+    
+    Args:
+       axs (array of Axes objects):  output axises from subplots
+       N (int): number of subplots you actualy want.
+       
+    Returns:
+       array of Axes objects: your remaining axises
+    """
     axs = axs.flat
     for ax in axs[N:]:
         ax.remove()
@@ -24,6 +47,27 @@ def trim_axs(axs, N):
 
 def getTCSelectionMaxes(TCList,selectionList=None,varSelection=None,
                        valRemove=[]):
+    """Get TimeCourse maximum values by variable
+    
+    Gets the maximum value for each variable over all TimeCouses and
+    all their time points. Useful in ordering and grouping multi plots.
+    
+    Args:
+       TCList (list):  A list of TimeCourse Dataframes
+       
+    Kwargs:
+       selectionList (list of ints): an optional list of the TimeCourses
+           (by their indexing in the TCList) to be included in the
+           calculation.
+       varSelection (list of str): an optional list of variables from the
+           TimeCourses we want returned in the results.
+       valRemove (list of float): an optional list of values that are to be
+           excluded from the list. A quick and dirty way to exclude
+           variables that have all been set to some pre determined value.
+       
+    Returns:
+       serise: the maximum value found for each variable
+    """
     if selectionList is None:
         maxes = [course.max() for course in TCList]
     else:
@@ -39,6 +83,26 @@ def getTCSelectionMaxes(TCList,selectionList=None,varSelection=None,
 
 def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
                        maxRunLength=6):
+    """breaks Series into subparts of similar size
+    
+    Takes a serise and breaks it into parts of comparable value size.
+    Sub parts are returned sorted internaly and relative to each other in
+    decending order. Useful for ordering and grouping plots with very
+    difrent value ranges.
+    
+    Args:
+       mySerise (serise):  A serise of floats to break into parts
+       
+    Kwargs:
+       relativeScaleBreakPoint (float): Specifies the smallest (by scale)
+           drop in value that should force an entry into a new subpart.
+       maxRunLength (int): Max size of any subpart.
+       
+    Returns:
+       list of list of str: the indexes of the serise are returned broken
+       into subparts (the inner list) acording the the size of their
+       asociated values.
+    """
     outerList=[]
     innerList=[]
     lastVal=None
@@ -106,6 +170,24 @@ class timeCourseVisualiser:
             
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
                   compLines=None, save = None):
+        """Plots grid if time course variables
+        
+        Creats grid of rainbow coloured plots for each variable in
+        colection of TimeCourses. Optionaly plots refrence data against
+        it as black dots.
+        
+        Kwargs:
+           indexSelect (list of ints): Indexs of time courses that should
+               be included in the plot.
+           varSelect (list of str): Variables from the Time course that
+               should be graphed.
+           wrapNumber (int): max number of columns to alow in grid.
+           compLines (dataFrame): refrence data to graph against time
+               courses. Sould be in wide format and have the times as the
+               index.
+           save (str): A path to where to save the image. if omited image
+               not saved
+        """
         if compLines is not None:
             compVars=list(compLines.columns)
             dfB = compLines.copy()
@@ -170,6 +252,25 @@ class parameterEstimationVisualiser:
         
     def violinPlot(self,indexSelect=None,paramSelect=None,RSSSelect=None,
                    save = None, indexNames=None):
+        """Creates Violin plot showing variation in paramiter space
+        
+        Kwargs:
+           indexSelect (list of ints): Indexs of sets of paramiter
+               estimation results that should be ploted. Takes a maximum of
+               2 to allow comparision of two sets. optionaly a single
+               interger may be used. Omision leads to all sets of paramiter
+               estimations being processed in a combined way.
+           varSelect (list of str): Variables from the paramiter
+               estimations that should be graphed.
+           RSSSelect (list of floats): Specifies a maximum RSS value for
+               data in the paramiter estimations to be included in the plot.
+               Ordering should match indexSelect.
+           save (str): A path to where to save the image. if omited image
+               not saved
+           indexNames (list of str): names to use in the plot legend. If
+               Omited numerical index is used. Ordering should match
+               indexSelect.
+        """
         df=self.BPData
         if RSSSelect is not None:
             if not isinstance(RSSSelect, list):
@@ -214,7 +315,16 @@ class parameterEstimationVisualiser:
             vp.get_figure().savefig(save)
             
     def waterFall(self,save = None, indexNames=None):
+        """creates watrfall plot of RSS values in paramiter estimations
+        
+        Kwargs:
+           save (str): A path to where to save the image. if omited image
+               not saved
+           indexNames (list of str): names to use in the plot legend.
+        """
         if indexNames is not None:
+            if not isinstance(indexNames,list):
+                indexNames = [indexNames]
             df = self.RSSData.copy()
             df["index"] = [indexNames[x] for x in df["index"]]
         else:
@@ -223,3 +333,28 @@ class parameterEstimationVisualiser:
         lp = sns.lineplot(data=df,x="subIndex",y="RSS",hue="index")
         if save is not None:
             lp.get_figure().savefig(save)
+            
+    def refPointVsRSS(self, myRef, save=None, indexNames=None):
+        names=list(myRef.index)
+        refPoint = myRef.copy()
+        refPoint["index"] = 1
+        refPoint["RSS"] = 1
+        diffTable = self.wideData.copy()
+        diffTable = (diffTable/refPoint)-1
+        diffTable["index"] = diffTable["index"]+1
+        diffTable["index"] = diffTable["index"].astype(int)
+        diffTable["RSS"] = diffTable["RSS"]+1
+        diffTable["difrence"] = 0
+        for name in names:
+            diffTable["difrence"] = (diffTable["difrence"] +
+                     diffTable[name]*diffTable[name])
+        diffTable["difrence"] = diffTable["difrence"] / len(names)
+        if indexNames is not None:
+            if not isinstance(indexNames,list):
+                indexNames = [indexNames]   
+            diffTable["index"] = [indexNames[x] for x in diffTable["index"]]
+        plt.figure()
+        sp = sns.scatterplot(data=diffTable, x="RSS", y="difrence",
+                             hue="index")
+        if save is not None:
+            sp.get_figure().savefig(save)
