@@ -169,7 +169,7 @@ class timeCourseVisualiser:
             grid.savefig(save)
             
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
-                  compLines=None, save = None):
+                  compLines=None, save = None, xlim = None):
         """Plots grid if time course variables
         
         Creats grid of rainbow coloured plots for each variable in
@@ -191,18 +191,29 @@ class timeCourseVisualiser:
         if compLines is not None:
             compVars=list(compLines.columns)
             dfB = compLines.copy()
-            dfB["Time"]=dfB.index
+            if "Time" not in compVars:
+                dfB["Time"]=dfB.index
+            else:
+                compVars.remove("Time")
             dfB = pd.melt(dfB,id_vars=["Time"],
                           value_vars=compVars)
+        if varSelect is None:
+            varSelect=list(self.longData['variable'].unique())
+        if indexSelect is None:
+            indexSelect=list(self.longData['index'].unique())
+        if not isinstance(indexSelect,list):
+            indexSelect = [indexSelect]
         if len(varSelect)<wrapNumber:
             cols = math.floor(math.sqrt(len(varSelect)))
         else:
             cols = wrapNumber
         rows = math.ceil(len(varSelect)/cols)
         fig, axs = plt.subplots(rows, cols, sharex=True, figsize=(12,10))
-        axs = trim_axs(axs, len(varSelect))
-        if indexSelect is not None:
-            myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect))
+        if (rows>1):
+            axs = trim_axs(axs, len(varSelect))
+        elif (cols==1):
+            axs = [axs]
+        myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect))
         for ax, theVar in zip(axs, varSelect):
             ax.set_title(theVar)
             df = self.longData
@@ -215,6 +226,8 @@ class timeCourseVisualiser:
             if compLines is not None:
                 dfB2 = dfB[dfB['variable']==theVar]
                 ax.plot(dfB2["Time"], dfB2["value"],"ko")
+            if xlim is not None:
+                ax.set_xlim(xlim)
             ax.set_ylim([0, None])
         fig.tight_layout()
         if save is not None:

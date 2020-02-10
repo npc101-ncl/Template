@@ -8,6 +8,7 @@ Created on Thu Dec 12 14:00:40 2019
 
 import site, os, time, re
 from pycotools3 import model, tasks, viz
+import tellurium as te
 import pandas as pd
 import logging
 
@@ -182,7 +183,12 @@ class modelRunner:
                 "particle_swarm_aggressive":{
                         "method":"particle_swarm",
                         "swarm_size":200,
-                        "iteration_limit":4000}}
+                        "iteration_limit":6000}}
+                
+    def extractModelParam(self):
+        copasi_filename = self.genPathCopasi("extractor")
+        self.recentModel = model.loada(self.antString, copasi_filename)
+        return self.recentModel.parameters.copy().squeeze().to_dict()
             
     def genPathCopasi(self,nameBase,suffix=".cps"):
         """generates a copasi path that isn't being used yet
@@ -248,7 +254,31 @@ class modelRunner:
         for name in estimatedVar:
             self.prefixAntString = replaceVariable(self.prefixAntString,
                                                    name,prefix+name)
-
+    
+    def genRefCopasiFile(self, filePath = None):
+        if filePath is None:
+            copasi_filename = self.genPathCopasi("refFile")
+        else:
+            copasi_filename = filePath
+        self.recentModel = model.loada(self.antString, copasi_filename)
+        
+    def runSteadyStateFinder(self,params=None):
+        r = te.loada(self.antString)
+        outValues = r.getFloatingSpeciesIds()
+        boundValues = r.getBoundarySpeciesIds()
+        outValues.extend(boundValues)
+        r.conservedMoietyAnalysis = True
+        r.setSteadyStateSolver('nleq1')
+        if params is not None:
+            for key, value in params.items():
+                temp = r[key]
+                r[key] = value
+                print(key,": ",temp," -> ",r[key])
+        
+        r.steadyState()
+        rState = {key:r[key] for key in outValues}
+        return rState
+    
     # if you reuse the same PEName twise the results get over writen by
     # the first
     def runParamiterEstimation(self,expDataFP,PEName=None,
@@ -337,6 +367,16 @@ class modelRunner:
                 return_data[key].rename(columns=colRenameDict, inplace=True)
         return return_data
     
+    def preProcessParamEnsam(self,Params):
+        copasi_filename = self.genPathCopasi("adjuster")
+        self.recentModel = model.loada(self.antString, copasi_filename)
+        adjust = {}
+        for colName in list(Params.columns):
+            baseVal = self.recentModel.get('metabolite', colName, by='name')
+            baseVal = baseVal.to_df()
+            adjust[colName] = baseVal["Value"]["concentration"]
+        return Params.fillna(value=adjust)
+    
     def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
                       TCName=None,adjustParams=None,subSet=None,
                       rocket=False):
@@ -344,9 +384,13 @@ class modelRunner:
             if subSet is None:
                 subSet = range(len(adjustParams.index))
             results = []
+            if not isinstance(duration,list):
+                duration = [duration for i in subSet]
+            if len(duration)!=len(subSet):
+                return False
             if rocket:
                 timeCourses = []
-                for setIndex in subSet:
+                for setIndex, myDur in zip(subSet,duration):
                     copasi_filename = self.genPathCopasi("timeCourse")
                     self.recentModel = model.loada(self.antString,
                                                    copasi_filename)
@@ -354,7 +398,7 @@ class modelRunner:
                                            df=adjustParams,
                                            index=setIndex,inplace=True)
                     self.recentTimeCourse = tasks.TimeCourse(
-                            self.recentModel,end=duration,
+                            self.recentModel,end=myDur,
                             step_size=stepSize,intervals=intervals,
                             run=False)
                     timeCourses.append(self.recentTimeCourse)
@@ -385,11 +429,12 @@ class modelRunner:
                     copasi_filename = os.path.join(self.run_dir, TCName)
                 self.recentModel = model.loada(self.antString,
                                                copasi_filename)
-                for setIndex in subSet:
-                    model.InsertParameters(self.recentModel,df=adjustParams,
+                for setIndex, myDur in zip(subSet,duration):
+                    model.InsertParameters(self.recentModel,
+                                           df=adjustParams,
                                            index=setIndex,inplace=True)
                     self.recentTimeCourse = tasks.TimeCourse(
-                            self.recentModel,end=duration,
+                            self.recentModel,end=myDur,
                             step_size=stepSize,intervals=intervals)
                     results.append(viz.Parse(
                             self.recentTimeCourse).data.copy())
