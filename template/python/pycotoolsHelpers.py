@@ -183,6 +183,10 @@ class modelRunner:
                 "particle_swarm_aggressive":{
                         "method":"particle_swarm",
                         "swarm_size":200,
+                        "iteration_limit":6000},
+                "particle_swarm_heroic":{
+                        "method":"particle_swarm",
+                        "swarm_size":300,
                         "iteration_limit":6000}}
                 
     def extractModelParam(self):
@@ -376,6 +380,22 @@ class modelRunner:
             baseVal = baseVal.to_df()
             adjust[colName] = baseVal["Value"]["concentration"]
         return Params.fillna(value=adjust)
+    
+    def TCendState(self, timeCourse, variables = None):
+        if isinstance(timeCourse,list):
+            myTC=timeCourse
+        else:
+            myTC=[timeCourse]
+        myTC = [i.tail(1).squeeze().to_dict() for i in myTC]
+        myTC = pd.DataFrame(myTC)
+        myTC = myTC.drop(columns=["Time"])
+        if variables == "metabolites":
+            copasi_filename = self.genPathCopasi("getter")
+            self.recentModel = model.loada(self.antString, copasi_filename)
+            myVar = [i.name for i in self.recentModel.metabolites]
+        if variables is not None:
+            myTC = myTC[myVar]
+        return myTC
     
     def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
                       TCName=None,adjustParams=None,subSet=None,

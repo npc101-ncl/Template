@@ -169,7 +169,8 @@ class timeCourseVisualiser:
             grid.savefig(save)
             
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
-                  compLines=None, save = None, xlim = None):
+                  compLines=None, save = None, xlim = None,
+                  forceYAxisZero = True):
         """Plots grid if time course variables
         
         Creats grid of rainbow coloured plots for each variable in
@@ -228,7 +229,8 @@ class timeCourseVisualiser:
                 ax.plot(dfB2["Time"], dfB2["value"],"ko")
             if xlim is not None:
                 ax.set_xlim(xlim)
-            ax.set_ylim([0, None])
+            if forceYAxisZero:
+                ax.set_ylim([0, None])
         fig.tight_layout()
         if save is not None:
             fig.savefig(save)
