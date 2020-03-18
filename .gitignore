@@ -10,3 +10,9 @@ template/.DS_Store
 *.ini
 *.ini
 *.ini
+template/.spyproject/workspace.ini
+template/.spyproject/workspace.ini
+*.cps
+*.sbml
+*.csv
+*.p

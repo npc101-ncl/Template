@@ -291,20 +291,36 @@ class modelRunner:
                                lowerParamBound=None,
                                method="particle_swarm_default",
                                overrideParam=None,
-                               indepToAdd=None, endTime=None):
-        if PEName is None:
-            copasi_filename = self.genPathCopasi("paramiterEstimation")
+                               indepToAdd=None, endTime=None, chain=None):
+        if isinstance(overrideParam, pd.DataFrame):
+            return self.chainRPEhandeler(expDataFP,PEName,copyNum,
+                                         estimateIC,estimatedVar,
+                                         prefix,rocket,upperParamBound,
+                                         lowerParamBound,method,
+                                         overrideParam,indepToAdd,
+                                         endTime)
+        if chain is None:
+            if PEName is None:
+                copasi_filename = self.genPathCopasi("paramiterEstimation")
+            else:
+                copasi_filename = os.path.join(self.run_dir, PEName)
         else:
-            copasi_filename = os.path.join(self.run_dir, PEName)
+            if PEName is None:
+                copasi_filename = self.genPathCopasi("paramiterEstimation")
+            else:
+                copasi_filename = os.path.join(self.run_dir,
+                                               str(chain).join(os.path.splitext(PEName)))
         
         if estimatedVar is not None:
-            self.genPrefixAntString(estimatedVar)
+            if chain is None or chain == 0:
+                self.genPrefixAntString(estimatedVar)
             self.recentModel = model.loada(self.prefixAntString,
                                            copasi_filename)
             colRenameDict = {i:(prefix+i) for i in estimatedVar}
-            expDataFP = renameCSVColumns(expDataFP,self.run_dir,
-                                         colRenameDict,
-                                         indepToAdd=indepToAdd)
+            if chain is None or chain == 0:
+                expDataFP = renameCSVColumns(expDataFP,self.run_dir,
+                                             colRenameDict,
+                                             indepToAdd=indepToAdd)
         else:
             self.recentModel = model.loada(self.antString, copasi_filename)
         if overrideParam is not None:
@@ -341,6 +357,9 @@ class modelRunner:
             config = context.get_config()
         
         self.recentPE = tasks.ParameterEstimation(config)
+        if chain is not None:
+            return {"chain":chain, "expDataFP":expDataFP,
+                    "PE":self.recentPE}
         doneNum=0
         lastLoop=0
         logging.disable(logging.WARNING)
@@ -369,7 +388,74 @@ class modelRunner:
             else:
                 return_data[key]=parse_object[key].copy()
                 return_data[key].rename(columns=colRenameDict, inplace=True)
+            if overrideParam is not None:
+                for newParam in overrideParam.keys():
+                    if not newParam in return_data[key].columns:
+                        return_data[key][newParam]=overrideParam[newParam]
         return return_data
+    
+    def chainRPEhandeler(self, expDataFP, PEName, copyNum, estimateIC,
+                         estimatedVar, prefix, rocket, upperParamBound,
+                         lowerParamBound, method, overrideParam, indepToAdd,
+                         endTime):
+        i = 0
+        workingExpDataFP = expDataFP
+        k=[]
+        for index, rowOP in overrideParam.iterrows():
+            j = self.runParamiterEstimation(workingExpDataFP,
+                                            PEName=PEName,
+                                            copyNum=copyNum,
+                                            estimateIC=estimateIC,
+                                            estimatedVar=estimatedVar,
+                                            prefix=prefix,
+                                            rocket=rocket,
+                                            upperParamBound=upperParamBound,
+                                            lowerParamBound=lowerParamBound,
+                                            method=method,
+                                            overrideParam=rowOP.to_dict(),
+                                            indepToAdd=indepToAdd,
+                                            chain=i)
+            workingExpDataFP = j["expDataFP"]
+            j["overrideParam"] = rowOP
+            i = i+1
+            k.append(j)
+        
+        totalSoFar=0
+        lastLoop=0
+        logging.disable(logging.WARNING)
+        while copyNum*len(k)>totalSoFar:
+            try:
+                parse_object_list = [viz.Parse(myIt["PE"]) for myIt in k]
+                parse_object_list = [myDict[next(iter(myDict))] for myDict
+                                            in parse_object_list]
+                if all([isinstance(df,pd.DataFrame) for df 
+                        in parse_object_list]):
+                    countList = [df.shape[0] for df in parse_object_list]
+                    totalSoFar = sum(countList)
+            except:
+                time.sleep(60)
+            if rocket and lastLoop<totalSoFar:
+                print(str(totalSoFar) + ' of ' + str(copyNum*len(k)) +
+                      ' done')
+                lastLoop = totalSoFar
+            if endTime is not None and rocket:
+                if endTime<=time.time():
+                    break
+        logging.disable(logging.NOTSET)
+        
+        if estimatedVar is not None:
+            colRenameDict = {(prefix+i):i for i in estimatedVar}
+        return_data=[]
+        for parse_object, myIt in zip(parse_object_list, k):
+            df = parse_object.copy()
+            if estimatedVar is not None:
+                df.rename(columns=colRenameDict, inplace=True)
+            for newParam, value in myIt["overrideParam"].items():
+                    if not newParam in df.columns:
+                        df[newParam]=value
+            return_data.append(df)
+        return_data = pd.concat(return_data, ignore_index=True)
+        return {next(iter(viz.Parse(k[0]["PE"]))):return_data}
     
     def preProcessParamEnsam(self,Params):
         copasi_filename = self.genPathCopasi("adjuster")
