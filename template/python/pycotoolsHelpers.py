@@ -172,6 +172,10 @@ class modelRunner:
         else:
             self.antString=antString
         self.methodDict = {
+                "particle_swarm_test":{
+                        "method":"particle_swarm",
+                        "swarm_size":5,
+                        "iteration_limit":100},
                 "particle_swarm_default":{
                         "method":"particle_swarm",
                         "swarm_size":50,
