@@ -214,7 +214,7 @@ class timeCourseVisualiser:
             axs = trim_axs(axs, len(varSelect))
         elif (cols==1):
             axs = [axs]
-        myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect))
+        myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
         for ax, theVar in zip(axs, varSelect):
             ax.set_title(theVar)
             df = self.longData

@@ -262,6 +262,46 @@ class modelRunner:
         for name in estimatedVar:
             self.prefixAntString = replaceVariable(self.prefixAntString,
                                                    name,prefix+name)
+            
+    def genReactionAntString(self, revTag = "RevRe__",
+                             iRevTag = "IrRevRe__"):
+        """Creates a new antimony string with added prefixs
+        
+        creates a new antimony string (stored seperatly from the refrence
+        string) with aditional asigned variables to represent each reaction
+        in the model. These variables can be used to create diagrams showing
+        the 'flow' of reactions.
+        
+        Kwargs:
+           revTag (str):  the prefix used to represent reactions with
+               revesable flow.
+           iRevTag (str):  the prefix used to represent reactions with
+               irevesable flow.
+        """
+        
+        
+        lines = self.antString.splitlines()
+        lines = [line.split("#")[0] for line in lines]
+        rLines = [line.split(":") for line in lines if
+                  len(line.split(":"))==2]
+        rLines = [[line[0]]+line[1].split(";") for line in rLines
+                  if len(line[1].split(";"))==2]
+        rLines = [[part.strip() for part in line] for line in rLines]
+        rLines = [line for line in rLines if ("->" in line[1]) or
+                  ("=>" in line[1])]
+        rLines = [[line[0], "->" in line[1], line[2]] for line in rLines]
+        rLines = [[revTag+line[0], line[1], line[2]] if line[1] else
+                  [iRevTag+line[0], line[1], line[2]] for line in rLines]
+        rLines = [line[0]+" := "+line[2]+";" for line in rLines]
+        for i, line in zip(range(len(lines)),lines):
+            if line.strip() == "end":
+                break
+        indent = ""
+        while indent == "" and i>0:
+            i = i-1
+            indent = re.search(r'^\s*', lines[i]).group()
+        rLines = [indent+line for line in rLines]
+        self.reactionAntString = "\n".join(lines[:i+1]+rLines+lines[i+1:])
     
     def genRefCopasiFile(self, filePath = None):
         if filePath is None:
@@ -489,7 +529,7 @@ class modelRunner:
     
     def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
                       TCName=None,adjustParams=None,subSet=None,
-                      rocket=False):
+                      rocket=False,genReactions=False):
         if adjustParams is not None:
             if subSet is None:
                 subSet = range(len(adjustParams.index))
@@ -502,8 +542,16 @@ class modelRunner:
                 timeCourses = []
                 for setIndex, myDur in zip(subSet,duration):
                     copasi_filename = self.genPathCopasi("timeCourse")
-                    self.recentModel = model.loada(self.antString,
-                                                   copasi_filename)
+                    if genReactions!=False:
+                        if isinstance(genReactions,dict):
+                            self.genReactionAntString(*genReactions)
+                        else:
+                            self.genReactionAntString()
+                        self.recentModel = model.loada(self.reactionAntString,
+                                                       copasi_filename)
+                    else:
+                        self.recentModel = model.loada(self.antString,
+                                                       copasi_filename)
                     model.InsertParameters(self.recentModel,
                                            df=adjustParams,
                                            index=setIndex,inplace=True)
@@ -537,8 +585,16 @@ class modelRunner:
                     copasi_filename = self.genPathCopasi("timeCourse")
                 else:
                     copasi_filename = os.path.join(self.run_dir, TCName)
-                self.recentModel = model.loada(self.antString,
-                                               copasi_filename)
+                if genReactions!=False:
+                    if isinstance(genReactions,dict):
+                        self.genReactionAntString(*genReactions)
+                    else:
+                        self.genReactionAntString()
+                    self.recentModel = model.loada(self.reactionAntString,
+                                                   copasi_filename)
+                else:
+                    self.recentModel = model.loada(self.antString,
+                                                   copasi_filename)
                 for setIndex, myDur in zip(subSet,duration):
                     model.InsertParameters(self.recentModel,
                                            df=adjustParams,
@@ -555,7 +611,16 @@ class modelRunner:
             else:
                 copasi_filename = os.path.join(self.run_dir, TCName)
                 
-            self.recentModel = model.loada(self.antString, copasi_filename)
+            if genReactions!=False:
+                if isinstance(genReactions,dict):
+                    self.genReactionAntString(*genReactions)
+                else:
+                    self.genReactionAntString()
+                self.recentModel = model.loada(self.reactionAntString,
+                                               copasi_filename)
+            else:
+                self.recentModel = model.loada(self.antString,
+                                               copasi_filename)
             self.recentTimeCourse = tasks.TimeCourse(self.recentModel,
                                                      end=duration,
                                                      step_size=stepSize,

@@ -16,3 +16,7 @@ template/.spyproject/workspace.ini
 *.sbml
 *.csv
 *.p
+*.eps
+*.sbgn
+*.svg
+*.xml
