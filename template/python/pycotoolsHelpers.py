@@ -10,7 +10,9 @@ import site, os, time, re
 from pycotools3 import model, tasks, viz
 import tellurium as te
 import pandas as pd
-import logging
+import logging, pickle, sys
+from random import randint
+from subprocess import getoutput
 
 def addCopasiPath(copasiPath):
     """adds the path to copasi to pythons working path
@@ -310,14 +312,53 @@ class modelRunner:
             copasi_filename = filePath
         self.recentModel = model.loada(self.antString, copasi_filename)
         
-    def runSteadyStateFinder(self,params=None):
+    def runSteadyStateFinder(self,params=None, rocket=False, chunks=1):
+        if isinstance(params, pd.DataFrame) and rocket:
+            list_df = [params[i:i+chunks] for i
+                       in range(0, params.shape[0], chunks)]
+            jobName = "SS"+str(randint(0, 99999))
+            for index, df in zip(len(list_df),list_df):
+                file = open(os.path.join(self.run_dir,
+                                         'SteadyState'+str(index)+'.p'), 'wb')
+                pickle.dump({"param":df, "run_dir":self.run_dir,
+                             "antimony_string":self.antString},file)
+                file.close()
+                myScriptName = self.genPathCopasi("SSSlurmScript",
+                                                      suffix = ".sh")
+                shellString = ("#!/bin/bash\n "+
+                               '#SBATCH --job-name="'+jobName+'"\n'+
+                               "python " + __file__ + 
+                               " runSteadyStateFinder" +
+                               ' SteadyState'+str(index)+'.p')
+                f = open(myScriptName, 'w')
+                f.write(shellString)
+                f.close()
+                os.system("sbatch "+myScriptName)
+            while getoutput("squeue -n " + jobName + " | wc -l")>1:
+                time.sleep(60)
+            df2 = pd.DataFrame()
+            for index in len(list_df):
+                file = open(os.path.join(self.run_dir,
+                                         'SteadyState'+str(index)+'.p'), 'rb')
+                df3 = pickle.load(file)
+                file.close()
+                if isinstance(df3, pd.DataFrame):
+                    df2 = pd.concat([df2,df3])
+                else:
+                    for _ in range(list_df[index].shape[0]):
+                        df2.append(pd.Series())
+            return df2
+        elif isinstance(params, pd.DataFrame):
+            dictList = [self.runSteadyStateFinder(params=row.to_dict())
+                        for _, row in params.iterrows()]
+            return pd.DataFrame(dictList)
         r = te.loada(self.antString)
         outValues = r.getFloatingSpeciesIds()
         boundValues = r.getBoundarySpeciesIds()
         outValues.extend(boundValues)
         r.conservedMoietyAnalysis = True
         r.setSteadyStateSolver('nleq1')
-        if params is not None:
+        if isinstance(params,dict):
             for key, value in params.items():
                 temp = r[key]
                 r[key] = value
@@ -626,3 +667,17 @@ class modelRunner:
                                                      step_size=stepSize,
                                                      intervals=intervals)
             return viz.Parse(self.recentTimeCourse).data.copy()
+        
+if __name__ == "__main__" and len(sys.argv[1:])>0:
+    cmdLineArg = sys.argv[1:]
+    if cmdLineArg[0]=="runSteadyStateFinder" and len(cmdLineArg)>=2:
+        file = open(cmdLineArg[1],'rb')
+        myDict = pickle.load(file)
+        file.close()
+        myModel = modelRunner(myDict["antimony_string"],
+                              myDict["run_dir"])
+        outputs = myModel.runSteadyStateFinder(params=myDict["param"])
+        file = open(cmdLineArg[1],'wb')
+        pickle.dump(outputs,file)
+        file.close()
+        
