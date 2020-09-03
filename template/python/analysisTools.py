@@ -60,6 +60,9 @@ def RSSClusterEstimation(PEDataFrame):
     myScaledData = pp.StandardScaler().fit_transform(PEDataFrame.filter(
             items=["RSS"]))
     bandwidth = estimate_bandwidth(myScaledData)
+    if bandwidth==0:
+        return [{"id":0, "maxRSS":PEDataFrame.iloc[0]['RSS'],
+                 "size":len(PEDataFrame)}]
     ms = MeanShift(bandwidth=bandwidth, bin_seeding=True)
     ms.fit(myScaledData)
     returnList = []
