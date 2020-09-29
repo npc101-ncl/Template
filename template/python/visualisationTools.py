@@ -121,6 +121,50 @@ def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
         outerList = [myList for myList in outerList if len(myList)>=1]
     return outerList
 
+class profileLikelyhoodVisualisor:
+    def __init__(self,profLike):
+        idenDict = profLike[0]
+        refDict = profLike[1]
+        self.scaledDict = {}
+        self.fitDict = {}
+        for idenPage in idenDict.keys():
+            self.scaledDict[idenPage] = idenDict[idenPage].copy()
+            temp = self.scaledDict[idenPage][idenPage]==refDict[idenPage]
+            refRow = self.scaledDict[idenPage][temp].squeeze()
+            if not isinstance(refRow,pd.Series):
+                refRow = refRow.iloc[0]
+            for col in refRow.index:
+                if refRow[col]!=0:
+                    self.scaledDict[idenPage][col] = (
+                            self.scaledDict[idenPage][col]/refRow[col])
+            self.fitDict[idenPage] = []
+            for col in [i for i in self.scaledDict[idenPage].columns
+                        if i in idenDict.keys() and i!=idenPage]:
+                df = self.scaledDict[idenPage][[idenPage]].copy()
+                df["myOnes"] = 1
+                m, c = np.linalg.lstsq(df[[idenPage,"myOnes"]],
+                                       self.scaledDict[idenPage][col])[0]
+                Sq = ((self.scaledDict[idenPage][col]-1)**2).sum()
+                self.fitDict[idenPage].append({"m":m, "c":c, "col":col,
+                            "sq":Sq})
+            #self.fitDict[idenPage].sort(key=(lambda x:np.abs(x["m"])))
+            self.fitDict[idenPage].sort(key=(lambda x:np.abs(x["m"])),
+                        reverse=True)
+    
+    def plotProfiles(self,showRows,showLimit=5, save = None):
+        fig, axs = plt.subplots(len(showRows), showLimit,
+                                sharex=True, figsize=(12,10))
+        for row, i in zip(showRows,range(len(showRows))):
+            for col, j in zip([i["col"] for i in self.fitDict[row]],
+                              range(showLimit)):
+                axs[i][j].scatter(self.scaledDict[row][row],
+                   self.scaledDict[row][col])
+                axs[i][j].set_title(col)
+            axs[i][0].set_ylabel(row, size='large')
+        fig.tight_layout()
+        if save is not None:
+            fig.savefig(save)
+
 class timeCourseVisualiser:
     def __init__(self,data):
         if not isinstance(data, list):

@@ -127,3 +127,21 @@ def getFileTargets(source_name, endings, names):
 
 def getEndTime(seconds = 60*60*47):
     return time.time()+seconds
+
+def repairPath(path):
+    refDir = os.path.split(work_dir_U)[1]
+    brokePath = os.path.split(path)
+    fixedPath = []
+    while brokePath[0]!="/":
+        if (brokePath[1]==refDir):
+            break
+        else:
+            fixedPath=[brokePath[1]]+fixedPath
+            brokePath = os.path.split(brokePath[0])
+    else:
+        return None
+    fixedPath=[work_dir_U]+fixedPath
+    fixedPath = os.path.join(*fixedPath)
+    return fixedPath
+        
+        

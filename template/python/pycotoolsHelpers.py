@@ -297,7 +297,6 @@ class modelRunner:
                irevesable flow.
         """
         
-        
         lines = self.antString.splitlines()
         lines = [line.split("#")[0] for line in lines]
         rLines = [line.split(":") for line in lines if
@@ -509,14 +508,76 @@ class modelRunner:
                                lowerParamBound=None,
                                method="particle_swarm_default",
                                overrideParam=None,
-                               indepToAdd=None, endTime=None, chain=None):
+                               indepToAdd=None, endTime=None, chain=None,
+                               randStartVal = True):
+        """runs a paramiter estimations on the loaded model
+        
+        Performs a paramiter estimation based on the model loaded
+        
+        Args:
+           expDataFP (str or list of str): either a path to a file or a list
+           of paths where each file represents a distinct experament to be 
+           calibrated against. Should be CSV files and if a "Time" column is
+           not defined only the 1st row will be used and treated as a steady
+           state.
+           
+        Kwargs:
+           indepToAdd (dict or list of dicts): key value pairs representing
+           the independed variables that should be assumed for each
+           experament. Used for overriding kinetic paramiters or initial
+           conditions. Ordering of list should match expDataFP.
+           PEName (str): provide a distinct name for the calculation if you
+           don't want to use the auto assigned one.
+           copyNum (int): the number of copys of the paramiter estimation to
+           do.
+           estimateIC (bool): whether the initial condtions (eg metabolites)
+           should be estimated.
+           estimatedVar (list of str): if provided defines the variables that
+           should be estimated.
+           prefix (str): can be used to avoid clashes with the naming
+           conventions you use for variables / paramiters. Modify the prefix
+           to ensure adding this charicter as a symbol wont create ambiguity in
+           your names.
+           rocket (bool): determines weather the the function should paralise
+           the task and submit it as seperate slurm jobs.
+           upperParamBound (float): the upper limit alowed for paramiters in
+           the search.
+           lowerParamBound (float): the lower bound for paramiters in the
+           search.
+           method (str or dict): a string that represents the methiod to use
+           in paramiter estimation. Optionaly pass a dictionary instead where
+           the key : value pairs are passed to the pycotools function
+           context.set to set the methiod.
+           overrideParam (dict or DataFrame): if a dict overrides the value of
+           paramiters / metabolites etc in acordence with the dicts entries
+           prior to computation. If a DataFrame will split the estimation into
+           multipul estimations for each row and overide the values for each
+           estimation based on that row. (so number of estimations is
+           len(overrideParam)*copyNum) This option can be used for
+           profilelikelyhoods or to do the second part in a global chaser
+           estimation if randStartVal is set to False.
+           randStartVal (bool): should each estimation have the value of the
+           variables to be estimated randomised prior to estimation? this will
+           erase any value set by overrideParam but not indepToAdd.
+           endTime (float): a time (seconds since epoch) that the calculation
+           should end prematirly at if reached.
+           chain (int): don't use this, its used internaly to help the
+           function call itself when spliting up paramiter estimation tasks
+           when overrideParam is a DataFrame.
+               
+        Returns:
+           dict: a dict with one eliment which is a DataFrame of results. this
+           format is for consistancy with pycotools. If overrideParam was a
+           DataFrame the row order should be 1st overide copy 1, ..., 1st
+           overide copy n, ..., last overide copy 1, ..., last overide copy n. 
+        """
         if isinstance(overrideParam, pd.DataFrame):
             return self.chainRPEhandeler(expDataFP,PEName,copyNum,
                                          estimateIC,estimatedVar,
                                          prefix,rocket,upperParamBound,
                                          lowerParamBound,method,
                                          overrideParam,indepToAdd,
-                                         endTime)
+                                         endTime,randStartVal)
         if chain is None:
             if PEName is None:
                 copasi_filename = self.genPathCopasi("paramiterEstimation")
@@ -542,8 +603,11 @@ class modelRunner:
         else:
             self.recentModel = model.loada(self.antString, copasi_filename)
         if overrideParam is not None:
+            rOverrideParam = {(lambda x: prefix+x if x 
+                               in estimatedVar else x)(k):v for k,v
+                              in overrideParam.items()}
             model.InsertParameters(self.recentModel,
-                                   parameter_dict=overrideParam,
+                                   parameter_dict=rOverrideParam,
                                    inplace=True)
         
         if estimateIC:
@@ -559,7 +623,7 @@ class modelRunner:
         with tasks.ParameterEstimation.Context(self.recentModel, expDataFP, 
                                                context='s', 
                                                parameters=PEParams) as context:
-            context.set('randomize_start_values', True)
+            context.set('randomize_start_values', randStartVal)
             context.set('separator', ',')
             if estimatedVar is not None:
                 context.set('prefix', prefix)
@@ -619,7 +683,7 @@ class modelRunner:
     def chainRPEhandeler(self, expDataFP, PEName, copyNum, estimateIC,
                          estimatedVar, prefix, rocket, upperParamBound,
                          lowerParamBound, method, overrideParam, indepToAdd,
-                         endTime):
+                         endTime, randStartVal):
         i = 0
         workingExpDataFP = expDataFP
         k=[]
@@ -636,7 +700,8 @@ class modelRunner:
                                             method=method,
                                             overrideParam=rowOP.to_dict(),
                                             indepToAdd=indepToAdd,
-                                            chain=i)
+                                            chain=i,
+                                            randStartVal=randStartVal)
             workingExpDataFP = j["expDataFP"]
             j["overrideParam"] = rowOP
             i = i+1
@@ -680,6 +745,20 @@ class modelRunner:
         return {next(iter(viz.Parse(k[0]["PE"]))):return_data}
     
     def preProcessParamEnsam(self,Params):
+        """fills in the NAs in a data frame based on model
+        
+        Fills in NAs in a data frame by matching the column names to the named
+        variables / paramiters in the antimony string and using those values
+        to do the filling in.
+        
+        Args:
+           Params (DataFrame): A DataFrame sutable for the overrideParam
+           variable in runParamiterEstimation except that it has NA values in
+           it.
+               
+        Returns:
+           DataFrame: data frame with NAs filled in.
+        """
         copasi_filename = self.genPathCopasi("adjuster")
         self.recentModel = model.loada(self.antString, copasi_filename)
         adjust = {}
@@ -715,6 +794,39 @@ class modelRunner:
     def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
                       TCName=None,adjustParams=None,subSet=None,
                       rocket=False,genReactions=False):
+        """Run one or more time courses (simulations)
+        
+        Takes the model and runs a simulation. Useful for getting time course
+        data for paramiter ensabels so you can see how difrent members of the
+        ensambel behave and match difrently to the calibration data.
+        
+        Args:
+           duration (float or list of float): duration to simulate over. (list
+           can be used if multipul simulations being done with difrent
+           durations)
+           
+        Kwargs:
+           stepSize (float): time step size between returned data points. does
+           not effect stap size used in ODE solution.
+           intervals (int): over all number of time steps that should be in
+           return data.
+           TCName (str): a Name for the calculation if you don't want to use
+           an automaticly generated default.
+           adjustParams (DataFrame): A dataframe such as those outputted by
+           runParamiterEstimation that overides the paramiter / metabolite
+           values for the simulations
+           subSet (list of ints): a list of which members of adjustParams
+           should be used for simulation.
+           rocket (bool): determines weather the the function should paralise
+           the task and submit it as seperate slurm jobs.
+           genReactions (bool): if true will return data for reaction rates as
+           well.
+               
+        Returns:
+           DataFrame or list of DataFrames: the time course as a data frame of
+           if multipul time courses a list of dataframes each its own
+           timecourse.
+        """
         if adjustParams is not None:
             if subSet is None:
                 subSet = range(len(adjustParams.index))
@@ -942,6 +1054,204 @@ class modelRunner:
                 return self.recentSensativity.sensitivities.copy()
             except:
                 return None
+    
+    def runProfileLikelyhood(self,expDataFP, adjRange, estimatedVar,
+                         estimateIC=True, prefix='_',rocket=False,
+                         upperParamBound=None, lowerParamBound=None,
+                         overrideParam=None, indepToAdd=None):   
+        """runs a profile likelyhood on the loaded model
+        
+        Performs a profile likelyhood based on the loaded model by running
+        multipul paramiter estimations where one paramiter is not estimated
+        but instead adjusted so see how changing it leeds to other changes in
+        the estimated variables. The methiod used is default hooke_jeeves.
+        
+        Args:
+           expDataFP (str or list of str): either a path to a file or a list
+           of paths where each file represents a distinct experament to be 
+           calibrated against. Should be CSV files and if a "Time" column is
+           not defined only the 1st row will be used and treated as a steady
+           state.
+           adjRange (list of float): the range of adjustments you want applied
+           (by scale) to the default value being adjusted. should include 1.0
+           for comtrole.
+           estimatedVar (list of str): if provided defines the variables that
+           should be re-estimated.
+           
+        Kwargs:
+           indepToAdd (dict or list of dicts): key value pairs representing
+           the independed variables that should be assumed for each
+           experament. Used for overriding kinetic paramiters or initial
+           conditions. Ordering of list should match expDataFP.
+           estimateIC (bool): whether the initial condtions (eg metabolites)
+           should be estimated.
+           prefix (str): can be used to avoid clashes with the naming
+           conventions you use for variables / paramiters. Modify the prefix
+           to ensure adding this charicter as a symbol wont create ambiguity in
+           your names.
+           rocket (bool): determines weather the the function should paralise
+           the task and submit it as seperate slurm jobs.
+           upperParamBound (float): the upper limit alowed for paramiters in
+           the search.
+           lowerParamBound (float): the lower bound for paramiters in the
+           search.
+           overrideParam (dict): overrides the value of paramiters /
+           metabolites etc in acordence with the dicts entries prior to
+           computation.
+               
+        Returns:
+           tupul: first of which is a dict of data frames where the key is the
+           paramiter fixed and adjusted and the dataframe contains the
+           paramiter estimation results. The 2nd in tupel is the refrence for
+           the origional values the 3rd is legasy and can be ignored.
+        """
+        if estimatedVar is None:
+            return None
+        extParam = self.extractModelParam()
+        returnData = {}
+        returnRef = {}
+        self.arrayPE = []
+        probeArray = []
+        estVar3 = {}
+        for adjVar in estimatedVar:
+            adjList = []
+            estVar2 = [var for var in estimatedVar if var!=adjVar]
+            colRenameDict = {i:(prefix+i) for i in estVar2}
+            self.genPrefixAntString(estVar2)
+            estVar3[adjVar]=estVar2
+            for adjustment in adjRange:
+                copasi_filename = self.genPathCopasi("profileLikelyhood")
+                self.recentModel = model.loada(self.prefixAntString,
+                                               copasi_filename)
+                expDataFP = renameCSVColumns(expDataFP,self.run_dir,
+                                             colRenameDict, 
+                                             indepToAdd=indepToAdd)
+                if isinstance(overrideParam,dict):
+                    overrideParamB = overrideParam.copy()
+                else:
+                    overrideParamB = {}
+                if adjVar in overrideParamB.keys():
+                    returnRef[adjVar] = overrideParamB[adjVar]
+                else:
+                    returnRef[adjVar] = float(extParam[adjVar])
+                overrideParamB[adjVar] = returnRef[adjVar]*adjustment
+                overrideParamB = {(lambda k: prefix+k if k
+                                   in estVar2 else k)(key):val for key, val 
+                                  in overrideParamB.items()}
+                model.InsertParameters(self.recentModel,
+                                       parameter_dict=overrideParamB,
+                                       inplace=True)
+                
+                if estimateIC:
+                    PEParams='gm'
+                else:
+                    PEParams='g'
+                    
+                if rocket==True:
+                    runMode='slurm'
+                else:
+                    runMode=True
+                
+                with tasks.ParameterEstimation.Context(self.recentModel,
+                                                       expDataFP, 
+                                                       context='s', 
+                                                       parameters=PEParams) as context:
+                    context.set('randomize_start_values', False)
+                    context.set('separator', ',')
+                    if estimatedVar is not None:
+                        context.set('prefix', prefix)
+                    if upperParamBound is not None:
+                        context.set('upper_bound', upperParamBound)
+                    if lowerParamBound is not None:
+                        context.set('lower_bound', lowerParamBound)
+                    context.set('method', 'hooke_jeeves')
+                    context.set('run_mode', runMode) 
+                    context.set('pe_number', 1) 
+                    context.set('copy_number', 1) 
+                    config = context.get_config()
+                    self.arrayPE.append(tasks.ParameterEstimation(config))
+                probeArray.append({"adjVar":adjVar,
+                                   "adjustment":adjustment,
+                                   "overrideParamB":overrideParamB[adjVar]})
+        #
+        colRenameDict = {i:(prefix+i) for i in estimatedVar}
+        self.genPrefixAntString(estimatedVar)
+        copasi_filename = self.genPathCopasi("profileLikelyhood")
+        self.recentModel = model.loada(self.prefixAntString,
+                                       copasi_filename)
+        expDataFP = renameCSVColumns(expDataFP,self.run_dir,
+                                     colRenameDict, 
+                                     indepToAdd=indepToAdd)
+        if isinstance(overrideParam,dict):
+            overrideParamB = overrideParam.copy()
+        else:
+            overrideParamB = {}
+        overrideParamB = {(lambda k: prefix+k if k
+                           in estimatedVar else k)(key):val for key, val 
+                          in overrideParamB.items()}
+        model.InsertParameters(self.recentModel,
+                               parameter_dict=overrideParamB,
+                               inplace=True)
+        with tasks.ParameterEstimation.Context(self.recentModel,
+                                               expDataFP, 
+                                               context='s', 
+                                               parameters=PEParams) as context:
+            context.set('randomize_start_values', False)
+            context.set('separator', ',')
+            if estimatedVar is not None:
+                context.set('prefix', prefix)
+            if upperParamBound is not None:
+                context.set('upper_bound', upperParamBound)
+            if lowerParamBound is not None:
+                context.set('lower_bound', lowerParamBound)
+            context.set('method', 'hooke_jeeves')
+            context.set('run_mode', runMode) 
+            context.set('pe_number', 1) 
+            context.set('copy_number', 1) 
+            config = context.get_config()
+            myContPE = tasks.ParameterEstimation(config)
+        #
+        logging.disable(logging.WARNING)
+        for PE in self.arrayPE:
+            notDone = True
+            while notDone:
+                try:
+                    parse_object = viz.Parse(PE)
+                    parse_object2 = parse_object[list(parse_object)[0]]
+                    if isinstance(parse_object2, pd.DataFrame):
+                        notDone = len(parse_object2) < 1
+                except:
+                    time.sleep(60)
+        notDone = True
+        while notDone:
+            try:
+                parse_object = viz.Parse(myContPE)
+                parse_object2 = parse_object[list(parse_object)[0]]
+                if isinstance(parse_object2, pd.DataFrame):
+                    notDone = len(parse_object2) < 1
+            except:
+                time.sleep(60)
+        logging.disable(logging.NOTSET)    
+        for PE, probe in zip(self.arrayPE, probeArray):    
+            parse_object = viz.Parse(PE)
+            parse_object2 = parse_object[list(parse_object)[0]]
+            df = parse_object2.copy()
+            if not probe["adjVar"] in df.columns:
+                df[probe["adjVar"]] = probe["overrideParamB"]
+            if not probe["adjVar"] in returnData.keys():
+                returnData[probe["adjVar"]]=[]
+            returnData[probe["adjVar"]].append(df)
+        returnData = {adjVar:pd.concat(adjList,ignore_index=True)
+                      for adjVar, adjList in returnData.items()}
+        parse_object = viz.Parse(myContPE)
+        parse_object2 = parse_object[list(parse_object)[0]]
+        contDF = parse_object2.copy()
+        for adjVar, adjList in returnData.items():
+            colRenameDict = {(prefix+i):i for i in estVar3[adjVar]}
+            adjList.rename(columns=colRenameDict, inplace=True) 
+        colRenameDict = {(prefix+i):i for i in estimatedVar}
+        contDF.rename(columns=colRenameDict, inplace=True) 
+        return returnData, returnRef, contDF
         
 if __name__ == "__main__" and len(sys.argv[1:])>0:
     cmdLineArg = sys.argv[1:]
