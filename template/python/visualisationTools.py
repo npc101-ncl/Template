@@ -9,6 +9,7 @@ Created on Sat Dec 14 01:00:04 2019
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 import math
 
 sns.set(context='paper')
@@ -150,6 +151,13 @@ class profileLikelyhoodVisualisor:
             #self.fitDict[idenPage].sort(key=(lambda x:np.abs(x["m"])))
             self.fitDict[idenPage].sort(key=(lambda x:np.abs(x["m"])),
                         reverse=True)
+        self.displayOrder = [{"k":k, "o":np.abs(v[0]["m"])} for k,v
+                     in self.fitDict.items()]
+        self.displayOrder.sort(key=(lambda x:x["o"]),reverse=True)
+        self.displayOrder = [i["k"] for i in self.displayOrder]
+        self.displayOrder = [self.displayOrder[4*i:4*(i+1)] for i
+                             in range(len(self.displayOrder))]
+        self.displayOrder = [i for i in self.displayOrder if len(i)>0]
     
     def plotProfiles(self,showRows,showLimit=5, save = None):
         fig, axs = plt.subplots(len(showRows), showLimit,

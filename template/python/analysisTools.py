@@ -75,3 +75,77 @@ def RSSClusterEstimation(PEDataFrame):
         returnList[ms.labels_[i]]["size"]=returnList[ms.labels_[i]]["size"]+1
     returnList.sort(key=lambda cl:cl["maxRSS"])
     return returnList
+
+def profileLikelyhood(TimeCourses,experamentMeans,StandardDeviations,
+                      calculateConstant = True):
+    """ gives -2*ln of profile likelyhood
+    
+    assuming normaly distributed noise given by the StandardDeviations data.
+    TimeCourses, experamentMeans and StandardDeviations are 3 aligned lists
+    who's enteries corisponde to each other.
+    
+    Args:
+       TimeCourses (list of DataFrame or dict): A list each eliment of which
+           can be a data frame or dict describing either a simulated time
+           course or steady state. If time course must have
+       experamentMeans (list of DataFrame or dict):
+       StandardDeviations (list of DataFrame or dict):
+           
+    Kwargs:
+       calculateConstant (bool): if false will not add constant based on SD to
+       the weighted sum of square of residuals. If the same experamental data
+       is used for two cases this constant will cancel out when you take the
+       difrence anyway
+       
+    Returns:
+       float: -2*ln of profile likelyhood
+    """
+    total = 0
+    for TC, EM, SD in zip(TimeCourses, experamentMeans, StandardDeviations):
+        if (isinstance(TC, pd.DataFrame) and isinstance(EM, pd.DataFrame)
+            and isinstance(SD, pd.DataFrame)):
+            if "Time" in EM.columns:
+                times = list(EM["Time"])
+            else: 
+                times = list(EM.index)
+            if "Time" in SD.columns:
+                if times != list(SD["Time"]):
+                    return None
+            elif times != list(SD.index):
+                return None
+            cols = list(set(EM.columns).intersection(SD.columns))
+            cols = [col for con in cols if col != "Time"]
+            if len(cols)==0:
+                return None
+            elif not all([col in TC.columns for col in cols]):
+                return None
+            aligned = []
+            for time in times:
+                row = (TC[TC["Time"]==time])[cols].copy()
+                if len(row)!=1:
+                    print("Time course index match confusion")
+                    return None
+                else:
+                    alignedTC.append(row.squeeze())
+            aligned = pd.DataFrame(alignedTC, columns=cols)
+            aligned = ((alignedTC-EM[cols])/SD[cols])**2
+            total = total + aligned.sum().sum()
+            if calculateConstant:
+                total = total + np.log((2*np.pi*
+                                        (SD[cols]**2)).prod().prod())
+        elif (isinstance(TC, dict) and isinstance(EM, dict)
+            and isinstance(SD, dict)):
+            keys = list(set(EM.keys()).intersection(SD.keys()))
+            if len(keys)==0:
+                return None
+            if not all([key in TC.keys() for key in keys]):
+                return None
+            total = total + sum([(TC[key]-EM[key])/SD[key] for key in keys])
+            if calculateConstant:
+                total = total + np.log(prod([2*np.pi*(SD[key]**2)
+                                             for key in keys]))
+        else:
+            return None
+    return total
+        
+                

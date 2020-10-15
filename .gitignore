@@ -20,3 +20,4 @@ template/.spyproject/workspace.ini
 *.sbgn
 *.svg
 *.xml
+*.ini

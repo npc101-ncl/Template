@@ -14,6 +14,8 @@ import logging, pickle, sys
 from random import randint
 from subprocess import getoutput
 from math import gcd
+import gc
+
 
 def addCopasiPath(copasiPath):
     """adds the path to copasi to pythons working path
@@ -203,7 +205,23 @@ class modelRunner:
                         "method":"particle_swarm",
                         "swarm_size":350,
                         "iteration_limit":7000}}
-        
+                
+    def checkRuningProcesses(self):
+        path = self.run_dir
+        allparts = []
+        while True:
+            parts = os.path.split(path)
+            if parts[1] == "":  # sentinel for absolute paths
+                break
+            elif parts[1] == path: # sentinel for relative paths
+                allparts.insert(0, parts[1])
+                break
+            else:
+                path = parts[0]
+                allparts.insert(0, parts[1])
+        path = "_"+"_".join(allparts)+"_sge_job_file.sh"
+        comand = "squeue -n " + path + " | wc -l"
+        return int(getoutput(comand))-1
         
     def extractModelParam(self):
         """a way of getting the model paramiters / initial conditions out of a
@@ -641,29 +659,30 @@ class modelRunner:
             context.set('pe_number', 1) 
             context.set('copy_number', copyNum) 
             config = context.get_config()
-        
+            if not randStartVal:
+                for key, value in rOverrideParam.items():
+                    if key in config.items.fit_items.keys():
+                        config.items.fit_items[key].start_value = value
         self.recentPE = tasks.ParameterEstimation(config)
         if chain is not None:
             return {"chain":chain, "expDataFP":expDataFP,
                     "PE":self.recentPE}
-        doneNum=0
-        lastLoop=0
         logging.disable(logging.WARNING)
-        while copyNum>doneNum:
-            try:
-                parse_object = viz.Parse(self.recentPE)
-                if isinstance(parse_object[list(parse_object)[0]],
-                                          pd.DataFrame):
-                    doneNum = parse_object[list(parse_object)[0]].shape[0]
-            except:
-                time.sleep(60)
-            if rocket and lastLoop<doneNum:
-                print(str(doneNum) + ' of ' + str(copyNum) + ' done')
-                lastLoop = doneNum
+        while rocket and self.checkRuningProcesses()>0:
+            time.sleep(60)
             if endTime is not None and rocket:
                 if endTime<=time.time():
+                    print("out of time")
                     break
-        
+        try:
+            parse_object = viz.Parse(self.recentPE)
+            if not isinstance(parse_object[list(parse_object)[0]],
+                                           pd.DataFrame):
+                print("failiour to parse")
+                return None
+        except:
+            print("failiour to parse")
+            return None      
         logging.disable(logging.NOTSET)
         if estimatedVar is not None:
             colRenameDict = {(prefix+i):i for i in estimatedVar}
@@ -729,7 +748,7 @@ class modelRunner:
                 if endTime<=time.time():
                     break
         logging.disable(logging.NOTSET)
-        
+        print(parse_object_list)
         if estimatedVar is not None:
             colRenameDict = {(prefix+i):i for i in estimatedVar}
         return_data=[]
@@ -971,9 +990,10 @@ class modelRunner:
                         "cols"]*pointStats[i//len(param)]["len"])
                 # need to add weights to experaments based on data points etc
             if TC.iloc[-1]["Time"] == duration:
-                RSS.append(self.getRSSforTimeCourse(TC, df,
-                                                    colWeights=myColWeights,
-                                                    method = method))
+                expRSS = self.getRSSforTimeCourse(TC, df,
+                                                  colWeights=myColWeights,
+                                                  method = method)
+                RSS.append(expRSS)
             else:
                 RSS.append(None)
         RSS2 = []
@@ -987,6 +1007,9 @@ class modelRunner:
                 subSum = subSum + RSS[i+j*len(param)]*pointStats[j]
             RSS2.append(subSum)
         return RSS2
+    
+    def calculateLikelyhood(param, IC, exp, method = "Mean Square"):
+        pass
     
     def makeSensAnalDF(self, sensa, params=None):
         if isinstance(params,pd.DataFrame):
@@ -1055,8 +1078,8 @@ class modelRunner:
             except:
                 return None
     
-    def runProfileLikelyhood(self,expDataFP, adjRange, estimatedVar,
-                         estimateIC=True, prefix='_',rocket=False,
+    def runProfileLikelyhood(self, expDataFP, adjRange, estimatedVar,
+                         estimateIC=True, prefix='_', rocket=False,
                          upperParamBound=None, lowerParamBound=None,
                          overrideParam=None, indepToAdd=None):   
         """runs a profile likelyhood on the loaded model
@@ -1139,15 +1162,15 @@ class modelRunner:
                                    in estVar2 else k)(key):val for key, val 
                                   in overrideParamB.items()}
                 model.InsertParameters(self.recentModel,
-                                       parameter_dict=overrideParamB,
-                                       inplace=True)
+                                       parameter_dict = overrideParamB,
+                                       inplace = True)
                 
                 if estimateIC:
                     PEParams='gm'
                 else:
                     PEParams='g'
                     
-                if rocket==True:
+                if rocket == True:
                     runMode='slurm'
                 else:
                     runMode=True
@@ -1173,47 +1196,17 @@ class modelRunner:
                 probeArray.append({"adjVar":adjVar,
                                    "adjustment":adjustment,
                                    "overrideParamB":overrideParamB[adjVar]})
-        #
-        colRenameDict = {i:(prefix+i) for i in estimatedVar}
-        self.genPrefixAntString(estimatedVar)
-        copasi_filename = self.genPathCopasi("profileLikelyhood")
-        self.recentModel = model.loada(self.prefixAntString,
-                                       copasi_filename)
-        expDataFP = renameCSVColumns(expDataFP,self.run_dir,
-                                     colRenameDict, 
-                                     indepToAdd=indepToAdd)
-        if isinstance(overrideParam,dict):
-            overrideParamB = overrideParam.copy()
-        else:
-            overrideParamB = {}
-        overrideParamB = {(lambda k: prefix+k if k
-                           in estimatedVar else k)(key):val for key, val 
-                          in overrideParamB.items()}
-        model.InsertParameters(self.recentModel,
-                               parameter_dict=overrideParamB,
-                               inplace=True)
-        with tasks.ParameterEstimation.Context(self.recentModel,
-                                               expDataFP, 
-                                               context='s', 
-                                               parameters=PEParams) as context:
-            context.set('randomize_start_values', False)
-            context.set('separator', ',')
-            if estimatedVar is not None:
-                context.set('prefix', prefix)
-            if upperParamBound is not None:
-                context.set('upper_bound', upperParamBound)
-            if lowerParamBound is not None:
-                context.set('lower_bound', lowerParamBound)
-            context.set('method', 'hooke_jeeves')
-            context.set('run_mode', runMode) 
-            context.set('pe_number', 1) 
-            context.set('copy_number', 1) 
-            config = context.get_config()
-            myContPE = tasks.ParameterEstimation(config)
-        #
         logging.disable(logging.WARNING)
-        for PE in self.arrayPE:
+        while self.checkRuningProcesses()>0:
+            time.sleep(60)
+        """
+        print("enters adj loop")
+        i=0
+        for PE, myProbe in zip(self.arrayPE,probeArray):
             notDone = True
+            print("searching",myProbe["adjVar"],":",myProbe["adjustment"],":",
+                  "number", i)
+            i=i+1
             while notDone:
                 try:
                     parse_object = viz.Parse(PE)
@@ -1222,36 +1215,29 @@ class modelRunner:
                         notDone = len(parse_object2) < 1
                 except:
                     time.sleep(60)
-        notDone = True
-        while notDone:
+            gc.collect()
+        """
+        logging.disable(logging.NOTSET) 
+        print("exits adj loop")
+        for PE, probe in zip(self.arrayPE, probeArray):
             try:
-                parse_object = viz.Parse(myContPE)
+                parse_object = viz.Parse(PE)
                 parse_object2 = parse_object[list(parse_object)[0]]
-                if isinstance(parse_object2, pd.DataFrame):
-                    notDone = len(parse_object2) < 1
+                df = parse_object2.copy()
+                if not probe["adjVar"] in df.columns:
+                    df[probe["adjVar"]] = probe["overrideParamB"]
+                if not probe["adjVar"] in returnData.keys():
+                    returnData[probe["adjVar"]]=[]
+                returnData[probe["adjVar"]].append(df)
             except:
-                time.sleep(60)
-        logging.disable(logging.NOTSET)    
-        for PE, probe in zip(self.arrayPE, probeArray):    
-            parse_object = viz.Parse(PE)
-            parse_object2 = parse_object[list(parse_object)[0]]
-            df = parse_object2.copy()
-            if not probe["adjVar"] in df.columns:
-                df[probe["adjVar"]] = probe["overrideParamB"]
-            if not probe["adjVar"] in returnData.keys():
-                returnData[probe["adjVar"]]=[]
-            returnData[probe["adjVar"]].append(df)
+                print("missing data for", probe)
+            gc.collect()
         returnData = {adjVar:pd.concat(adjList,ignore_index=True)
                       for adjVar, adjList in returnData.items()}
-        parse_object = viz.Parse(myContPE)
-        parse_object2 = parse_object[list(parse_object)[0]]
-        contDF = parse_object2.copy()
         for adjVar, adjList in returnData.items():
             colRenameDict = {(prefix+i):i for i in estVar3[adjVar]}
-            adjList.rename(columns=colRenameDict, inplace=True) 
-        colRenameDict = {(prefix+i):i for i in estimatedVar}
-        contDF.rename(columns=colRenameDict, inplace=True) 
-        return returnData, returnRef, contDF
+            adjList.rename(columns=colRenameDict, inplace=True)
+        return returnData, returnRef, {}
         
 if __name__ == "__main__" and len(sys.argv[1:])>0:
     cmdLineArg = sys.argv[1:]
