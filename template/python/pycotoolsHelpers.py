@@ -30,6 +30,10 @@ def addCopasiPath(copasiPath):
     if not re.search(copasiPath, os.environ["PATH"]):
         os.environ["PATH"] += os.pathsep + copasiPath
         
+def antStrFromCopasi(path):
+    myModel = model.Model(path)
+    return myModel.to_antimony()
+        
 def extractAntReactions(antString):
     antLines=antString.splitlines()
     reactions = []
@@ -1081,7 +1085,8 @@ class modelRunner:
     def runProfileLikelyhood(self, expDataFP, adjRange, estimatedVar,
                          estimateIC=True, prefix='_', rocket=False,
                          upperParamBound=None, lowerParamBound=None,
-                         overrideParam=None, indepToAdd=None):   
+                         overrideParam=None, indepToAdd=None, depth=1,
+                         method=None):   
         """runs a profile likelyhood on the loaded model
         
         Performs a profile likelyhood based on the loaded model by running
@@ -1121,6 +1126,8 @@ class modelRunner:
            overrideParam (dict): overrides the value of paramiters /
            metabolites etc in acordence with the dicts entries prior to
            computation.
+           method (dict): can be used to overide usual paramiter estimation
+           method settings.
                
         Returns:
            tupul: first of which is a dict of data frames where the key is the
@@ -1150,7 +1157,9 @@ class modelRunner:
                                              colRenameDict, 
                                              indepToAdd=indepToAdd)
                 if isinstance(overrideParam,dict):
-                    overrideParamB = overrideParam.copy()
+                    overrideParamB = {key:value for key,value
+                                      in overrideParam.items()
+                                      if key!="RSS"}
                 else:
                     overrideParamB = {}
                 if adjVar in overrideParamB.keys():
@@ -1187,18 +1196,23 @@ class modelRunner:
                         context.set('upper_bound', upperParamBound)
                     if lowerParamBound is not None:
                         context.set('lower_bound', lowerParamBound)
-                    context.set('method', 'hooke_jeeves')
+                    if isinstance(method,dict):
+                        for mKey, mVal in method.items():
+                            context.set(mKey, mVal)
+                    else:
+                        context.set('method', 'hooke_jeeves')
                     context.set('run_mode', runMode) 
                     context.set('pe_number', 1) 
-                    context.set('copy_number', 1) 
+                    context.set('copy_number', depth) 
                     config = context.get_config()
                     self.arrayPE.append(tasks.ParameterEstimation(config))
                 probeArray.append({"adjVar":adjVar,
                                    "adjustment":adjustment,
                                    "overrideParamB":overrideParamB[adjVar]})
         logging.disable(logging.WARNING)
-        while self.checkRuningProcesses()>0:
-            time.sleep(60)
+        if rocket:
+            while self.checkRuningProcesses()>0:
+                time.sleep(60)
         """
         print("enters adj loop")
         i=0

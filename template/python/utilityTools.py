@@ -37,7 +37,7 @@ def GFID(myDict):
     """
     return (myDict[next(iter(myDict))])
 
-def savePick(fPath, data, relative=False, mkDir=True):
+def resolvePath(fPath,requireExt=None,relative=False):
     if isinstance(fPath,str):
         pathList=[fPath]
     elif isinstance(fPath,list):
@@ -47,7 +47,14 @@ def savePick(fPath, data, relative=False, mkDir=True):
     if relative:
         pathList.insert(0,work_dir_U)
     pathList = os.path.join(*pathList)
-    if os.path.splitext(pathList)[1] != ".p":
+    if isinstance(requireExt,str):
+        if os.path.splitext(pathList)[1] != "."+requireExt:
+            return None
+    return pathList
+
+def savePick(fPath, data, relative=False, mkDir=True):
+    pathList = resolvePath(fPath,requireExt="p",relative=relative)
+    if pathList is None:
         return None
     dirName = os.path.dirname(pathList)
     if mkDir and not os.path.isdir(dirName):
@@ -57,16 +64,8 @@ def savePick(fPath, data, relative=False, mkDir=True):
     file.close()
     
 def loadPick(fPath, relative=False):
-    if isinstance(fPath,str):
-        pathList=[fPath]
-    elif isinstance(fPath,list):
-        pathList = fPath
-    else:
-        return None
-    if relative:
-        pathList.insert(0,work_dir_U)
-    pathList = os.path.join(*pathList)
-    if os.path.splitext(pathList)[1] != ".p":
+    pathList = resolvePath(fPath,requireExt="p",relative=relative)
+    if pathList is None:
         return None
     if not os.path.isfile(pathList):
         return None
@@ -76,16 +75,8 @@ def loadPick(fPath, relative=False):
     return data
 
 def loadTxt(fPath, relative=False):
-    if isinstance(fPath,str):
-        pathList=[fPath]
-    elif isinstance(fPath,list):
-        pathList = fPath
-    else:
-        return None
-    if relative:
-        pathList.insert(0,work_dir_U)
-    pathList = os.path.join(*pathList)
-    if os.path.splitext(pathList)[1] != ".txt":
+    pathList = resolvePath(fPath,requireExt="txt",relative=relative)
+    if pathList is None:
         return None
     if not os.path.isfile(pathList):
         return None
