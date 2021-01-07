@@ -225,7 +225,10 @@ class modelRunner:
                 allparts.insert(0, parts[1])
         path = "_"+"_".join(allparts)+"_sge_job_file.sh"
         comand = "squeue -n " + path + " | wc -l"
-        return int(getoutput(comand))-1
+        try:
+            return int(getoutput(comand))-1
+        except:
+            return float('inf')
         
     def extractModelParam(self):
         """a way of getting the model paramiters / initial conditions out of a
@@ -527,11 +530,13 @@ class modelRunner:
     def runParamiterEstimation(self,expDataFP,PEName=None,
                                copyNum=1,estimateIC=True,estimatedVar=None,
                                prefix='_',rocket=False,upperParamBound=None,
+                               upperParamBoundOverride=None,
                                lowerParamBound=None,
+                               lowerParamBoundOverride=None,
                                method="particle_swarm_default",
                                overrideParam=None,
                                indepToAdd=None, endTime=None, chain=None,
-                               randStartVal = True):
+                               randStartVal = True, throttle = None):
         """runs a paramiter estimations on the loaded model
         
         Performs a paramiter estimation based on the model loaded
@@ -599,7 +604,7 @@ class modelRunner:
                                          prefix,rocket,upperParamBound,
                                          lowerParamBound,method,
                                          overrideParam,indepToAdd,
-                                         endTime,randStartVal)
+                                         endTime,randStartVal,throttle)
         if chain is None:
             if PEName is None:
                 copasi_filename = self.genPathCopasi("paramiterEstimation")
@@ -661,12 +666,27 @@ class modelRunner:
                     context.set(key, value)
             context.set('run_mode', runMode) 
             context.set('pe_number', 1) 
-            context.set('copy_number', copyNum) 
+            context.set('copy_number', copyNum)
             config = context.get_config()
             if not randStartVal:
                 for key, value in rOverrideParam.items():
                     if key in config.items.fit_items.keys():
                         config.items.fit_items[key].start_value = value
+            if isinstance(upperParamBoundOverride,dict):
+                for key, value in upperParamBoundOverride.items():
+                    if key in config.items.fit_items.keys():
+                        config.items.fit_items[key].upper_bound = value
+            if isinstance(lowerParamBoundOverride,dict):
+                for key, value in lowerParamBoundOverride.items():
+                    if key in config.items.fit_items.keys():
+                        config.items.fit_items[key].lower_bound = value
+        if isinstance(throttle,dict):
+            if ("user" in throttle.keys() and
+                "jobLimit" in throttle.keys()):
+                while((int(getoutput("squeue -u " + throttle["user"] +
+                                     " | wc -l"))-1) >=
+                throttle["jobLimit"]):
+                    time.sleep(60)
         self.recentPE = tasks.ParameterEstimation(config)
         if chain is not None:
             return {"chain":chain, "expDataFP":expDataFP,
@@ -706,7 +726,7 @@ class modelRunner:
     def chainRPEhandeler(self, expDataFP, PEName, copyNum, estimateIC,
                          estimatedVar, prefix, rocket, upperParamBound,
                          lowerParamBound, method, overrideParam, indepToAdd,
-                         endTime, randStartVal):
+                         endTime, randStartVal, throttle):
         i = 0
         workingExpDataFP = expDataFP
         k=[]
@@ -724,7 +744,8 @@ class modelRunner:
                                             overrideParam=rowOP.to_dict(),
                                             indepToAdd=indepToAdd,
                                             chain=i,
-                                            randStartVal=randStartVal)
+                                            randStartVal=randStartVal,
+                                            throttle=throttle)
             workingExpDataFP = j["expDataFP"]
             j["overrideParam"] = rowOP
             i = i+1
@@ -814,9 +835,9 @@ class modelRunner:
             myTC = myTC[myVar]
         return myTC
     
-    def runTimeCourse(self,duration,stepSize=0.01,intervals=100,
+    def runTimeCourse(self,duration,stepSize=None,intervals=None,
                       TCName=None,adjustParams=None,subSet=None,
-                      rocket=False,genReactions=False):
+                      rocket=False,genReactions=False,throttle=None):
         """Run one or more time courses (simulations)
         
         Takes the model and runs a simulation. Useful for getting time course
@@ -850,6 +871,8 @@ class modelRunner:
            if multipul time courses a list of dataframes each its own
            timecourse.
         """
+        if (stepSize is None) and (intervals is None):
+            stepSize = 0.01
         if adjustParams is not None:
             if subSet is None:
                 subSet = range(len(adjustParams.index))
@@ -859,9 +882,15 @@ class modelRunner:
             if len(duration)!=len(subSet):
                 return False
             if rocket:
+                jobName = "TC"+str(randint(0, 99999))
                 timeCourses = []
                 for setIndex, myDur in zip(subSet,duration):
-                    copasi_filename = self.genPathCopasi("timeCourse")
+                    myScriptName = os.path.join(self.run_dir,
+                                                jobName+str(setIndex))
+                    if not os.path.isdir(myScriptName):
+                        os.mkdir(myScriptName)
+                    copasi_filename = os.path.join(myScriptName,
+                                                   "timeCourse.cps")
                     if genReactions!=False:
                         if isinstance(genReactions,dict):
                             self.genReactionAntString(*genReactions)
@@ -875,19 +904,36 @@ class modelRunner:
                     model.InsertParameters(self.recentModel,
                                            df=adjustParams,
                                            index=setIndex,inplace=True)
-                    self.recentTimeCourse = tasks.TimeCourse(
-                            self.recentModel,end=myDur,
-                            step_size=stepSize,intervals=intervals,
-                            run=False)
+                    if stepSize is not None:
+                        self.recentTimeCourse = tasks.TimeCourse(
+                                self.recentModel,end=myDur,
+                                step_size=stepSize,
+                                run=False)
+                    else:
+                        self.recentTimeCourse = tasks.TimeCourse(
+                                self.recentModel,end=myDur,
+                                step_size=myDur/intervals,
+                                run=False)
                     timeCourses.append(self.recentTimeCourse)
-                    myScriptName = self.genPathCopasi("TCSlurmScript",
-                                                      suffix = ".sh")
+                    myScriptName = os.path.join(myScriptName,
+                                                jobName + ".sh")
                     shellString = ("#!/bin/bash\nCopasiSE "+
                                    copasi_filename)
                     f = open(myScriptName, 'w')
                     f.write(shellString)
                     f.close()
+                    if isinstance(throttle,dict):
+                        if ("user" in throttle.keys() and
+                            "jobLimit" in throttle.keys()):
+                            while((int(getoutput("squeue -u " + 
+                                                 throttle["user"] +
+                                                 " | wc -l"))-1) >=
+                                  throttle["jobLimit"]):
+                                time.sleep(60)
                     os.system("sbatch "+myScriptName)
+                while((int(getoutput("squeue -n " + jobName +
+                                     ".sh | wc -l"))-1) > 0):
+                    time.sleep(60)
                 for theTimeCourse in timeCourses:
                     sucsessful=False
                     logging.disable(logging.WARNING)
@@ -919,9 +965,15 @@ class modelRunner:
                     model.InsertParameters(self.recentModel,
                                            df=adjustParams,
                                            index=setIndex,inplace=True)
-                    self.recentTimeCourse = tasks.TimeCourse(
-                            self.recentModel,end=myDur,
-                            step_size=stepSize,intervals=intervals)
+                    
+                    if stepSize is not None:
+                        self.recentTimeCourse = tasks.TimeCourse(
+                                self.recentModel,end=myDur,
+                                step_size=stepSize)
+                    else:
+                        self.recentTimeCourse = tasks.TimeCourse(
+                                self.recentModel,end=myDur,
+                                step_size=myDur/intervals)
                     results.append(viz.Parse(
                             self.recentTimeCourse).data.copy())
             return results
@@ -941,10 +993,14 @@ class modelRunner:
             else:
                 self.recentModel = model.loada(self.antString,
                                                copasi_filename)
-            self.recentTimeCourse = tasks.TimeCourse(self.recentModel,
-                                                     end=duration,
-                                                     step_size=stepSize,
-                                                     intervals=intervals)
+            if intervals is not None:
+                self.recentTimeCourse = tasks.TimeCourse(
+                        self.recentModel,end=duration,
+                        step_size=stepSize)
+            else:
+                self.recentTimeCourse = tasks.TimeCourse(
+                        self.recentModel,end=duration,
+                        step_size=duration/intervals)
             return viz.Parse(self.recentTimeCourse).data.copy()
         
     def getRSSforParamiters(self, param, IC, exp, method = "Mean Square",
@@ -1082,7 +1138,7 @@ class modelRunner:
             except:
                 return None
     
-    def runProfileLikelyhood(self, expDataFP, adjRange, estimatedVar,
+    def runProfileLikelyhood2(self, expDataFP, adjRange, estimatedVar,
                          estimateIC=True, prefix='_', rocket=False,
                          upperParamBound=None, lowerParamBound=None,
                          overrideParam=None, indepToAdd=None, depth=1,
@@ -1209,6 +1265,7 @@ class modelRunner:
                 probeArray.append({"adjVar":adjVar,
                                    "adjustment":adjustment,
                                    "overrideParamB":overrideParamB[adjVar]})
+                gc.collect()
         logging.disable(logging.WARNING)
         if rocket:
             while self.checkRuningProcesses()>0:
@@ -1252,6 +1309,157 @@ class modelRunner:
             colRenameDict = {(prefix+i):i for i in estVar3[adjVar]}
             adjList.rename(columns=colRenameDict, inplace=True)
         return returnData, returnRef, {}
+    
+    def runProfileLikelyhood(self, expDataFP, adjRange, estimatedVar,
+                             estimateIC=True, prefix='_', rocket=False,
+                             upperParamBound=None, lowerParamBound=None,
+                             overrideParam=None, indepToAdd=None, depth=1,
+                             method=None, throttle=None):   
+        """runs a profile likelyhood on the loaded model
+        
+        Performs a profile likelyhood based on the loaded model by running
+        multipul paramiter estimations where one paramiter is not estimated
+        but instead adjusted so see how changing it leeds to other changes in
+        the estimated variables. The methiod used is default hooke_jeeves.
+        
+        Args:
+           expDataFP (str or list of str): either a path to a file or a list
+           of paths where each file represents a distinct experament to be 
+           calibrated against. Should be CSV files and if a "Time" column is
+           not defined only the 1st row will be used and treated as a steady
+           state.
+           adjRange (list of float): the range of adjustments you want applied
+           (by scale) to the default value being adjusted. should include 1.0
+           for comtrole.
+           estimatedVar (list of str): if provided defines the variables that
+           should be re-estimated.
+           
+        Kwargs:
+           indepToAdd (dict or list of dicts): key value pairs representing
+           the independed variables that should be assumed for each
+           experament. Used for overriding kinetic paramiters or initial
+           conditions. Ordering of list should match expDataFP.
+           estimateIC (bool): whether the initial condtions (eg metabolites)
+           should be estimated.
+           prefix (str): can be used to avoid clashes with the naming
+           conventions you use for variables / paramiters. Modify the prefix
+           to ensure adding this charicter as a symbol wont create ambiguity in
+           your names.
+           rocket (bool): determines weather the the function should paralise
+           the task and submit it as seperate slurm jobs.
+           upperParamBound (float): the upper limit alowed for paramiters in
+           the search.
+           lowerParamBound (float): the lower bound for paramiters in the
+           search.
+           overrideParam (dict): overrides the value of paramiters /
+           metabolites etc in acordence with the dicts entries prior to
+           computation.
+           method (dict): can be used to overide usual paramiter estimation
+           method settings.
+               
+        Returns:
+           tupul: first of which is a dict of data frames where the key is the
+           paramiter fixed and adjusted and the dataframe contains the
+           paramiter estimation results. The 2nd in tupel is the refrence for
+           the origional values the 3rd is legasy and can be ignored.
+        """
+        if estimatedVar is None:
+            return None
+        extParam = self.extractModelParam()
+        returnData = {}
+        returnRef = {}
+        sendPaths = {}
+        returnPaths = {}
+        scriptPaths = {}
+        jobName = "PE"+str(randint(0, 99999))
+        for adjVar in estimatedVar:
+            if isinstance(overrideParam,dict):
+                overrideParamB = {key:value for key,value
+                                  in overrideParam.items()
+                                  if key!="RSS"}
+            else:
+                overrideParamB = {}
+            if adjVar in overrideParamB.keys():
+                returnRef[adjVar] = overrideParamB[adjVar]
+                print("from overide",adjVar,overrideParamB[adjVar])
+            elif adjVar in extParam.keys():
+                returnRef[adjVar] = float(extParam[adjVar])
+                print("from overide",adjVar,returnRef[adjVar])
+            else:
+                continue
+            overrideParamC = []
+            for adjustment in adjRange:
+                overrideParamC.append(overrideParamB.copy())
+                overrideParamC[-1][adjVar] = returnRef[adjVar]*adjustment
+            overrideParamC = pd.DataFrame(overrideParamC)
+            if method is None:
+                myMethod = {'method':'hooke_jeeves'}
+            else:
+                myMethod = method
+            estVar2 = [var for var in estimatedVar if var!=adjVar]
+            returnPaths[adjVar] = os.path.join(self.run_dir,
+                     'subRunPEout_'+adjVar+'.p')
+            subRunPEspec = {"expDataFP":expDataFP,
+                            "RPEDict":{"copyNum":depth,
+                                       "estimateIC":estimateIC,
+                                       "estimatedVar":estVar2,
+                                       "prefix":prefix,
+                                       "rocket":rocket,
+                                       "upperParamBound":upperParamBound,
+                                       "lowerParamBound":lowerParamBound,
+                                       "method":myMethod,
+                                       "overrideParam":overrideParamC,
+                                       "indepToAdd":indepToAdd,
+                                       "randStartVal":False,
+                                       "throttle":throttle},
+                            "initDict":{"antString":self.antString,
+                                        "run_dir":os.path.join(
+                                                self.run_dir,
+                                                "pl_"+adjVar)},
+                            "returnPath":returnPaths[adjVar]}
+            sendPaths[adjVar] = os.path.join(self.run_dir,
+                     'subRunPEspec_'+adjVar+'.p')
+            file = open(sendPaths[adjVar], 'wb')
+            pickle.dump(subRunPEspec,file)
+            file.close()
+            scriptPaths[adjVar] = os.path.join(self.run_dir, "pl_"+adjVar)
+            if not os.path.isdir(scriptPaths[adjVar]):
+                os.makedirs(scriptPaths[adjVar])
+            scriptPaths[adjVar] = os.path.join(scriptPaths[adjVar],
+                                               jobName+".sh")
+            shellString = ("#!/bin/bash\n "+
+                           "python " + __file__ + 
+                           " runParamiterEstimation " +
+                           sendPaths[adjVar])
+            f = open(scriptPaths[adjVar], 'w')
+            f.write(shellString)
+            f.close()
+        sys.stdout.flush()
+        if rocket:
+            for adjVar in estimatedVar:
+                if adjVar in scriptPaths.keys():
+                    os.system("sbatch " + scriptPaths[adjVar])
+            while int(getoutput("squeue -n " + jobName + ".sh | wc -l"))>1:
+                time.sleep(60)
+        else:
+            for adjVar, myPath in sendPaths.items():
+                file = open(myPath, 'rb')
+                subRunPEspec = pickle.load(file)
+                file.close()
+                myModel = modelRunner(**subRunPEspec["initDict"])
+                myParam = myModel.runParamiterEstimation(
+                        subRunPEspec["expDataFP"],
+                        **subRunPEspec["RPEDict"])
+                myParam = myParam[next(iter(myParam))]
+                file = open(subRunPEspec["returnPath"], 'wb')
+                pickle.dump(myParam,file)
+                file.close()
+        for adjVar in estimatedVar:
+            if adjVar in returnPaths.keys():
+                file = open(returnPaths[adjVar], 'rb')
+                returnData[adjVar] = pickle.load(file)
+                file.close()
+        return returnData, returnRef, {}
         
 if __name__ == "__main__" and len(sys.argv[1:])>0:
     cmdLineArg = sys.argv[1:]
@@ -1264,5 +1472,17 @@ if __name__ == "__main__" and len(sys.argv[1:])>0:
         outputs = myModel.runSteadyStateFinder(params=myDict["param"])
         file = open(cmdLineArg[1],'wb')
         pickle.dump(outputs,file)
+        file.close()
+    elif cmdLineArg[0]=="runParamiterEstimation" and len(cmdLineArg)>=2:
+        file = open(cmdLineArg[1], 'rb')
+        subRunPEspec = pickle.load(file)
+        file.close()
+        time.sleep(5*60)
+        myModel = modelRunner(**subRunPEspec["initDict"])
+        myParam = myModel.runParamiterEstimation(
+                subRunPEspec["expDataFP"], **subRunPEspec["RPEDict"])
+        myParam = myParam[next(iter(myParam))]
+        file = open(subRunPEspec["returnPath"], 'wb')
+        pickle.dump(myParam,file)
         file.close()
         

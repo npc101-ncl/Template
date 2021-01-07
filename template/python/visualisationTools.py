@@ -128,6 +128,19 @@ class profileLikelyhoodVisualisor:
         refDict = profLike[1]
         self.scaledDict = {}
         self.fitDict = {}
+        self.aggDF = []
+        for idenPage in idenDict.keys():
+            temp = idenDict[idenPage].copy()
+            temp["variable"] = idenPage
+            temp = temp.sort_values(by=["RSS"])
+            temp["LEVEL"] = temp.groupby(idenPage).cumcount()
+            temp = temp.sort_values(by=["LEVEL",idenPage])
+            temp = temp.reset_index(drop=True)
+            self.aggDF.append(temp)            
+        self.aggDF = pd.concat(self.aggDF,ignore_index=True)
+        for variable, origVal in refDict.items():
+            if origVal!=0 and variable in self.aggDF.columns:
+                self.aggDF[variable] = self.aggDF[variable]/origVal
         for idenPage in idenDict.keys():
             self.scaledDict[idenPage] = idenDict[idenPage].copy()
             temp = self.scaledDict[idenPage][idenPage]==refDict[idenPage]
@@ -169,6 +182,24 @@ class profileLikelyhoodVisualisor:
                    self.scaledDict[row][col])
                 axs[i][j].set_title(col)
             axs[i][0].set_ylabel(row, size='large')
+        fig.tight_layout()
+        if save is not None:
+            fig.savefig(save)
+            
+    def plotRSS(self,showVars,showLimit=5, save = None):
+        fig, axs = plt.subplots((len(showVars)-1)//showLimit+1,
+                                showLimit, sharex=True, figsize=(12,10))
+        axs = trim_axs(axs, len(showVars))
+        for myVar, i, ax in zip(showVars,range(len(showVars)),axs):
+            temp = self.aggDF[self.aggDF["variable"]==myVar]
+            temp = temp[[myVar,"RSS","LEVEL"]]
+            avalableLevels = temp["LEVEL"].unique()
+            for myLevel in avalableLevels:
+                ax.plot(temp[temp["LEVEL"]==myLevel][myVar],
+                        temp[temp["LEVEL"]==myLevel]["RSS"])
+            ax.set_yscale('log')
+            ax.set_xscale('log')
+            ax.set_title(myVar)
         fig.tight_layout()
         if save is not None:
             fig.savefig(save)
@@ -222,7 +253,7 @@ class timeCourseVisualiser:
             
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
                   compLines=None, save = None, xlim = None,
-                  forceYAxisZero = True):
+                  forceYAxisZero = True, colourOverride = None):
         """Plots grid if time course variables
         
         Creats grid of rainbow coloured plots for each variable in
@@ -266,7 +297,10 @@ class timeCourseVisualiser:
             axs = trim_axs(axs, len(varSelect))
         elif (cols==1):
             axs = [axs]
-        myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
+        if colourOverride is not None:
+            myColorMap = plt.get_cmap(name="cool")
+        else:
+            myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
         for ax, theVar in zip(axs, varSelect):
             ax.set_title(theVar)
             df = self.longData
@@ -274,8 +308,12 @@ class timeCourseVisualiser:
             if indexSelect is not None:
                 for theIndex, i in zip(indexSelect,range(len(indexSelect))):
                     df2 = df[df['index']==theIndex]
-                    ax.plot(df2["Time"], df2["value"],linestyle='solid',
-                            color=myColorMap(i))
+                    if colourOverride is not None:
+                        ax.plot(df2["Time"], df2["value"],linestyle='solid',
+                                color=myColorMap(colourOverride[i]))
+                    else:
+                        ax.plot(df2["Time"], df2["value"],linestyle='solid',
+                                color=myColorMap(i))
             if compLines is not None:
                 dfB2 = dfB[dfB['variable']==theVar]
                 ax.plot(dfB2["Time"], dfB2["value"],"ko")

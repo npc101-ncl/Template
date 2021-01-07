@@ -8,4 +8,4 @@
 #SBATCH --mail-type=ALL
 #
 
-python test2.py
+python example.py slurm user:npc101 adjments:19 adjPerLog10:3

@@ -8,6 +8,7 @@ Created on Mon Dec 16 16:39:30 2019
 
 from sklearn.cluster import DBSCAN, MeanShift, estimate_bandwidth
 from sklearn import preprocessing as pp
+from sklearn.decomposition import PCA
 import numpy as np
 import pandas as pd
 
@@ -57,8 +58,10 @@ def RSSClusterEstimation(PEDataFrame):
            "size":number_of_members_of_cluster}
            
     """
-    myScaledData = pp.StandardScaler().fit_transform(PEDataFrame.filter(
-            items=["RSS"]))
+    myRSS = PEDataFrame.filter(items=["RSS"])
+    myRSS = myRSS.replace([np.inf, -np.inf], np.nan)
+    myRSS = myRSS.dropna()
+    myScaledData = pp.StandardScaler().fit_transform(myRSS)
     bandwidth = estimate_bandwidth(myScaledData)
     if bandwidth==0:
         return [{"id":0, "maxRSS":PEDataFrame.iloc[0]['RSS'],
@@ -147,5 +150,19 @@ def profileLikelyhood(TimeCourses,experamentMeans,StandardDeviations,
         else:
             return None
     return total
-        
-                
+
+def paramPCA(params,components='mle'):
+    returnData = {}
+    myArray = np.array(params.drop(columns="RSS"))
+    print(myArray.shape)
+    myPCA = PCA(n_components=components)
+    myPCA = myPCA.fit(myArray)
+    names = [col for col in params.columns if col!="RSS"]
+    returnData["logVarDrop"] = np.diff(np.log(myPCA.explained_variance_))
+    returnData["newPoints"] = myPCA.transform(myArray)
+    returnData["newPoints"] = pd.DataFrame(returnData["newPoints"])
+    returnData["vectors"] = [(pd.Series(data=comp, index=names)) for comp
+              in myPCA.components_]
+    returnData["cumVarExp"] = myPCA.explained_variance_ratio_.cumsum()
+    returnData["PCA"] = myPCA
+    return returnData
