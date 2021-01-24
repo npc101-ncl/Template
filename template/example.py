@@ -28,8 +28,8 @@ isOnSlurm = "slurm" in cmdFlags
 
 # looks for keyword entry giving usename of acount running program on
 # cluster
-if "user" in CLDict.keys():
-    userID = CLDict["user"]
+if "user" in cmdDict.keys():
+    userID = cmdDict["user"]
 else:
     userID = "npc101"
 
@@ -46,18 +46,18 @@ else:
     myThrottle=None
 
 # set number of points to calculate for profile likelyhood
-if "adjments" in CLDict.keys():
-    adjCount = CLDict["adjments"]
+if "adjments" in cmdDict.keys():
+    adjCount = cmdDict["adjments"]
     adjCount=int(adjCount)
 else:
-    adjCount = 19
+    adjCount = 5
 
 # set number of points per factor of 10 in profile likelyhood   
-if "perLog10" in CLDict.keys():
-    adjPerLog10 = CLDict["perLog10"]
+if "perLog10" in cmdDict.keys():
+    adjPerLog10 = cmdDict["perLog10"]
     adjPerLog10=float(adjPerLog10)
 else:
-    adjPerLog10 = 3
+    adjPerLog10 = 1
 
 # if not running on a cluster tells python where to find copasise
 if not isOnSlurm:
@@ -84,7 +84,7 @@ model test_model()
 end
 """
 
-# creats a absolute path relative to this scripts directory
+# creats an absolute path relative to this scripts directory
 # the model's working files are kept here
 runDir = resolvePath(["copasiRuns","example1"], relative=True)
 
@@ -92,7 +92,7 @@ runDir = resolvePath(["copasiRuns","example1"], relative=True)
 myModel = modelRunner(antString=antStr, run_dir=runDir)
 
 # runs a simulation optomised for the rocket cluster if on cluster
-timeCourse = myModel.runTimeCourse(10, stepSize=0.1, rocket=isOnSlurm)
+timeCourse = myModel.runTimeCourse(2.5, stepSize=0.1, rocket=isOnSlurm)
 
 # selects only the Time A and B outputs of the simulation
 timeCourse = timeCourse[["Time","A","B"]]
@@ -111,12 +111,14 @@ refTC = resolvePath(["refTC.csv"], relative=True)
 # save time course as csv for use in visualisation code
 timeCourse.to_csv(refTC)
 
+refTC = timeCourse.copy()
+
 # run simulation under the asumption A starts at 1
-timeCourse = myModel.runTimeCourse(10, stepSize=0.1, rocket=isOnSlurm,
+timeCourse = myModel.runTimeCourse(5, stepSize=0.25, rocket=isOnSlurm,
                                    adjustParams=pd.DataFrame([{"A":1}]))
 
 # selects only the Time A and B outputs of the simulation
-timeCourse = timeCourse[["Time","A","B"]]
+timeCourse = timeCourse[0][["Time","A","B"]]
 
 
 expFile2 = resolvePath(["copasiRuns","example1","calData2.csv"],
@@ -127,27 +129,28 @@ timeCourse.to_csv(expFile2)
 
 # define the starting asumptions / paramiter overides for each experamental
 # data set
-indepCond = pd.DataFrame([{}, {"A":1}])
-# fill in any blanks based on values in model
-indepCond = myModel.preProcessParamEnsam(indepCond)
+indepCond = [{}]
 
 # run paramiter extimation on 2 data sets
-params = myModel.runParamiterEstimation([expFile1, expFile2],
+params = myModel.runParamiterEstimation([expFile1],
                                         estimatedVar = ["k1", "k2", "k3",
                                                         "k4", "A", "B"],
-                                        copyNum = 100,
+                                        copyNum = 10,
                                         rocket = isOnSlurm,
                                         indepToAdd = indepCond,
-                                        method="particle_swarm_default")
+                                        method="particle_swarm_rigorous")
 
 # unwrap results to give data frame
 params = GFID(params)
 # purge RSS column from data frame
 params = params[[col for col in params.columns if "RSS"!=col]]
 
+params.to_csv(resolvePath(["data","example","param1.csv"],
+                          relative=True))
+
 # perform 2nd paramiter estimation using output of first paramiter estimation
 # as a starting point
-params = myModel.runParamiterEstimation([expFile1, expFile2],
+params = myModel.runParamiterEstimation([expFile1],
                                         estimatedVar = ["k1", "k2", "k3",
                                                         "k4", "A", "B"],
                                         copyNum = 1,
@@ -165,9 +168,12 @@ params = GFID(params)
 # purge RSS column from data frame
 params = params[[col for col in params.columns if "RSS"!=col]]
 
+params.to_csv(resolvePath(["data","example","param2.csv"],
+                          relative=True))
+
 # run colection of simulations using the output of the paramiter estimation
 # to overide the models paramiters / initial conditions
-timeCourse = myModel.runTimeCourse(10, stepSize=0.1, rocket=isOnSlurm,
+timeCourse = myModel.runTimeCourse(5, stepSize=0.1, rocket=isOnSlurm,
                                    adjustParams=params, genReactions=True)
 
 # save results as pickel file
@@ -178,7 +184,7 @@ adjRange = [10**((x-(adjCount-1)//2)/adjPerLog10)
             for x in range(adjCount)]
 
 # run profile likelyhood on best result from paramiter estimation
-myPL = myModel.runProfileLikelyhood([expFile1, expFile2], adjRange,
+myPL = myModel.runProfileLikelyhood([expFile1], adjRange,
                                     ["k1", "k2", "k3", "k4", "A", "B"],
                                     rocket = isOnSlurm,
                                     overrideParam = params.iloc[0].to_dict(),
@@ -188,3 +194,17 @@ myPL = myModel.runProfileLikelyhood([expFile1, expFile2], adjRange,
 
 # save results to pickel file
 savePick(["data", "example", "PL.p"], myPL, relative=True)
+
+#origional model paramiters
+trueParam = pd.Series(myModel.extractModelParam())
+trueParam = pd.to_numeric(trueParam)
+
+trueParam = params.subtract(trueParam)**2
+trueParam = trueParam.mean(axis=1)
+
+refTC = refTC.set_index('Time')
+newTC = timeCourse[0].copy()
+newTC = newTC.set_index('Time')
+newTC = newTC.subtract(refTC)**2
+newTC = newTC.dropna(how='all').dropna(axis=1, how='all')
+newTC = newTC.mean(axis=1).mean()

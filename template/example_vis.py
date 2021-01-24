@@ -50,10 +50,10 @@ myTCVis.multiPlot(indexSelect=[1,2,3], varSelect=["A","B"], wrapNumber=5,
                                                       relative=True))
 
 # make a bar chart representing simulation at time 5
-myTCVis.barChart(5, indexSelect=[1,2,3], varSelect=["A","B"],
+myTCVis.barChart(2.5, indexSelect=[1,2,3], varSelect=["A","B"],
                  compLines=refTC,
                  save = resolvePath(["figures","example",
-                                     "TimeCourse.png"], relative=True))
+                                     "Bars.png"], relative=True))
 
 # load profile likelyhood data
 myPL = loadPick(["data", "example", "PL.p"], relative=True)

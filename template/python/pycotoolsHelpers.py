@@ -598,6 +598,7 @@ class modelRunner:
            DataFrame the row order should be 1st overide copy 1, ..., 1st
            overide copy n, ..., last overide copy 1, ..., last overide copy n. 
         """
+        
         if isinstance(overrideParam, pd.DataFrame):
             return self.chainRPEhandeler(expDataFP,PEName,copyNum,
                                          estimateIC,estimatedVar,
@@ -617,6 +618,12 @@ class modelRunner:
                 copasi_filename = os.path.join(self.run_dir,
                                                str(chain).join(os.path.splitext(PEName)))
         
+        overlap = list(set(estimatedVar).intersection(set([j for i 
+                       in [list(k.keys()) for k 
+                           in indepToAdd] for j in i])))
+        if len(overlap)>0:
+            print("You my not estimate independent variables:",*overlap)
+            return None
         if estimatedVar is not None:
             if chain is None or chain == 0:
                 self.genPrefixAntString(estimatedVar)
@@ -646,7 +653,7 @@ class modelRunner:
             runMode='slurm'
         else:
             runMode=True
-        
+   
         with tasks.ParameterEstimation.Context(self.recentModel, expDataFP, 
                                                context='s', 
                                                parameters=PEParams) as context:
@@ -765,6 +772,17 @@ class modelRunner:
                     totalSoFar = sum(countList)
             except:
                 time.sleep(60)
+                if not rocket:
+                    parse_object_list = []
+                    for myIt in k:
+                        try:
+                            parse_object_list.append(
+                                    viz.Parse(myIt["PE"]))
+                        except:
+                            parse_object_list.append({" ":pd.DataFrame()})
+                    parse_object_list = [myDict[next(iter(myDict))]
+                                         for myDict in parse_object_list]
+                    break
             if rocket and lastLoop<totalSoFar:
                 print(str(totalSoFar) + ' of ' + str(copyNum*len(k)) +
                       ' done')
@@ -786,7 +804,10 @@ class modelRunner:
                         df[newParam]=value
             return_data.append(df)
         return_data = pd.concat(return_data, ignore_index=True)
-        return {next(iter(viz.Parse(k[0]["PE"]))):return_data}
+        try:
+            return {next(iter(viz.Parse(k[0]["PE"]))):return_data}
+        except:
+            return {" ":return_data}
     
     def preProcessParamEnsam(self,Params):
         """fills in the NAs in a data frame based on model
@@ -993,7 +1014,7 @@ class modelRunner:
             else:
                 self.recentModel = model.loada(self.antString,
                                                copasi_filename)
-            if intervals is not None:
+            if stepSize is not None:
                 self.recentTimeCourse = tasks.TimeCourse(
                         self.recentModel,end=duration,
                         step_size=stepSize)
@@ -1456,9 +1477,12 @@ class modelRunner:
                 file.close()
         for adjVar in estimatedVar:
             if adjVar in returnPaths.keys():
-                file = open(returnPaths[adjVar], 'rb')
-                returnData[adjVar] = pickle.load(file)
-                file.close()
+                try:
+                    file = open(returnPaths[adjVar], 'rb')
+                    returnData[adjVar] = pickle.load(file)
+                    file.close()
+                except:
+                    pass
         return returnData, returnRef, {}
         
 if __name__ == "__main__" and len(sys.argv[1:])>0:

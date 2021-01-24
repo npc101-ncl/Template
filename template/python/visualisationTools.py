@@ -146,7 +146,11 @@ class profileLikelyhoodVisualisor:
             temp = self.scaledDict[idenPage][idenPage]==refDict[idenPage]
             refRow = self.scaledDict[idenPage][temp].squeeze()
             if not isinstance(refRow,pd.Series):
-                refRow = refRow.iloc[0]
+                try:
+                    refRow = refRow.iloc[0]
+                except:
+                    print(idenPage)
+                    print(refRow)
             for col in refRow.index:
                 if refRow[col]!=0:
                     self.scaledDict[idenPage][col] = (
