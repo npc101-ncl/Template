@@ -210,7 +210,7 @@ class modelRunner:
                         "swarm_size":350,
                         "iteration_limit":7000}}
                 
-    def checkRuningProcesses(self):
+    def checkRuningProcesses(self, job=None, user=None):
         path = self.run_dir
         allparts = []
         while True:
@@ -224,7 +224,16 @@ class modelRunner:
                 path = parts[0]
                 allparts.insert(0, parts[1])
         path = "_"+"_".join(allparts)+"_sge_job_file.sh"
-        comand = "squeue -n " + path + " | wc -l"
+        if isinstance(job,str):
+            path = " -n " + job
+        else:
+            if not isinstance(user,str):
+                path = " -n " + path
+            else:
+                path = ""
+        if isinstance(user,str):
+            path = path + " -u " + user
+        comand = "squeue" + path + " | wc -l"
         try:
             return int(getoutput(comand))-1
         except:
@@ -465,7 +474,7 @@ class modelRunner:
         else:
             return workingParams
         
-    
+    # paralel version broken
     def runSteadyStateFinder(self, params=None, rocket=False, chunks=1):
         if isinstance(params, pd.DataFrame) and rocket:
             list_df = [params[i:i+chunks] for i
@@ -488,7 +497,7 @@ class modelRunner:
                 f.write(shellString)
                 f.close()
                 os.system("sbatch "+myScriptName)
-            while int(getoutput("squeue -n " + jobName + " | wc -l"))>1:
+            while self.checkRuningProcesses(job = jobName)>0:
                 time.sleep(60)
             df2 = pd.DataFrame()
             for index in range(len(list_df)):
@@ -690,9 +699,8 @@ class modelRunner:
         if isinstance(throttle,dict):
             if ("user" in throttle.keys() and
                 "jobLimit" in throttle.keys()):
-                while((int(getoutput("squeue -u " + throttle["user"] +
-                                     " | wc -l"))-1) >=
-                throttle["jobLimit"]):
+                while(self.checkRuningProcesses(user = throttle["user"])
+                >= throttle["jobLimit"]):
                     time.sleep(60)
         self.recentPE = tasks.ParameterEstimation(config)
         if chain is not None:
@@ -946,14 +954,12 @@ class modelRunner:
                     if isinstance(throttle,dict):
                         if ("user" in throttle.keys() and
                             "jobLimit" in throttle.keys()):
-                            while((int(getoutput("squeue -u " + 
-                                                 throttle["user"] +
-                                                 " | wc -l"))-1) >=
-                                  throttle["jobLimit"]):
+                            while(self.checkRuningProcesses(
+                                    user=throttle["user"]) >=
+                            throttle["jobLimit"]):
                                 time.sleep(60)
                     os.system("sbatch "+myScriptName)
-                while((int(getoutput("squeue -n " + jobName +
-                                     ".sh | wc -l"))-1) > 0):
+                while(self.checkRuningProcesses(job=jobName+".sh") > 0):
                     time.sleep(60)
                 for theTimeCourse in timeCourses:
                     sucsessful=False
@@ -1460,7 +1466,7 @@ class modelRunner:
             for adjVar in estimatedVar:
                 if adjVar in scriptPaths.keys():
                     os.system("sbatch " + scriptPaths[adjVar])
-            while int(getoutput("squeue -n " + jobName + ".sh | wc -l"))>1:
+            while self.checkRuningProcesses(job=jobName+".sh")>0:
                 time.sleep(60)
         else:
             for adjVar, myPath in sendPaths.items():

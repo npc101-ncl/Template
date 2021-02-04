@@ -23,6 +23,20 @@ def getCmdLineArgs():
             outSet.add(arg)
     return outDict, outSet
 
+def parseCmdDict(cmdDict,defaults):
+    outList = []
+    for key, default in defaults.items():
+        if not key in cmdDict:
+            outList.append(default)
+            continue
+        myType = type(defaults)
+        if myType==int:
+            outList.append(int(cmdDict[key]))
+        elif myType==float:
+            outList.append(float(cmdDict[key]))
+        else:
+            outList.append(str(cmdDict[key]))
+
 def GFID(myDict):
     """Get First in Dictionary
     
