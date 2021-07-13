@@ -84,6 +84,52 @@ def extractAntReactions(antString):
         reactions.append(reaction)
     return reactions
 
+def getModelsAndFunctions(antStr):
+    myFuncts = re.findall(r'(?<=\bfunction\b)(.*?)(?=\bend\b)', antStr,
+                          flags=re.DOTALL)
+    myFuncts = [re.split(r'\bfunction\b', i)[-1] for i in myFuncts]
+    myModels = re.findall(r'(?<=\bmodel\b)(.*?)(?=\bend\b)', antStr,
+                          flags=re.DOTALL)
+    myFunctsLines = [myFun.splitlines() for myFun in myFuncts]
+    myModelsLines = [myMod.splitlines() for myMod in myModels]
+    myFunctNames = [(lambda x: x.group(1) if x is not None
+                     else None)(re.match(r'[\s*]*(\w+)',myFun[0]))
+                    for myFun in myFunctsLines]
+    myModelNames = [(lambda x: x.group(1) if x is not None
+                     else None)(re.match(r'[\s*]*(\w+)',myMod[0]))
+                    for myMod in myModelsLines]
+    for i, name in enumerate(myFunctNames):
+        arguments = re.search(r'\((.*?)\)',myFunctsLines[i][0]).group(1)
+        arguments = arguments.split(",")
+        arguments = [A.strip() for A in arguments]
+        myFuncts[i] = {"lines":myFunctsLines[i], "name":name,
+                "text":"function"+myFuncts[i]+"end",
+                "arguments":arguments}
+    for i, name in enumerate(myModelNames):
+        myModels[i] = {"lines":myModelsLines[i], "name":name,
+                "text":"model"+myModels[i]+"end"}
+    return {"functions":myFuncts, "models":myModels}
+
+def subFunIntoReact (reaction,functionList):
+    rNew = reaction["formula"]
+    for F in functionList:
+        subs = []
+        formula = F["lines"][1].split(";")[0].strip()
+        for M in re.finditer(F["name"]+r'\s*\((.*?)\)', rNew):
+            args = M.group(1)
+            args = [A.strip() for A in args.split(",")]
+            if len(args)!=len(F["arguments"]):
+                continue
+            subs.append({"s":M.start(),"e":M.end(),"a":args})
+            "text[:M.start()] + newText + text[M.end():]"
+        for S in reversed(subs):
+            ins = formula
+            rep = {A:B for A, B in zip(F["arguments"], S["a"])}
+            pattern = re.compile("|".join(rep.keys()))
+            ins = pattern.sub(lambda m: rep[m.group(0)], ins)
+            rNew = rNew[:S["s"]] + "(" +ins +")"+ rNew[S["e"]:]
+    return rNew
+
 def replaceVariable(theString,oldName,newName):
     """changes the name of a variable in an antimony string
     
@@ -249,6 +295,53 @@ class modelRunner:
         copasi_filename = self.genPathCopasi("extractor")
         self.recentModel = model.loada(self.antString, copasi_filename)
         return self.recentModel.parameters.copy().squeeze().to_dict()
+    
+    def getReactions(self):
+        copasi_filename = self.genPathCopasi("extractor")
+        self.recentModel = model.loada(self.antString, copasi_filename)
+        myReact = self.recentModel.reactions
+        myReact = [{"name":R.name, "expression":R.expression,
+                    "rate_law":R.rate_law, "reversible":R.reversible,
+                    "simulation_type":R.simulation_type}
+                   for R in myReact]
+        myReact = pd.DataFrame(myReact)
+        myFun = self.recentModel.functions
+        myFun = [{"name":F.name, "key":F.key, "expression":F.expression}
+                 for F in myFun]
+        lines = self.antString.splitlines()
+        for i, F in enumerate(myFun):
+            myRegEx = re.compile(r"^\s*function\s+"+F["name"]+
+                                 "\s*\(([\s,\w])\)\s*$")
+            dec = [myRegEx.search(L) for L in lines]
+            if i ==0 :
+                print(F["name"])
+                print(lines)
+            dec = [M.group() for M in dec if M is not None]
+            if len(dec)==1:
+                myFun[i]["arguments"]=dec[0]
+        myFun = pd.DataFrame(myFun)
+        rr = te.loada(self.antString)
+        myTR = [rr[rid] for rid in rr.getReactionIds()]
+        return {"reactions":myReact, "functions":myFun}
+                    
+    def getModelEliments(self):
+        copasi_filename = self.genPathCopasi("extractor")
+        self.recentModel = model.loada(self.antString, copasi_filename)
+        tEl = self.recentModel.get_variable_names(which='a',
+                                                  include_assignments=True)
+        mEl = self.recentModel.get_variable_names(which='m',
+                                                  include_assignments=False)
+        gEl = self.recentModel.get_variable_names(which='g', 
+                                                  include_assignments=False)
+        lEl = self.recentModel.get_variable_names(which='l', 
+                                                  include_assignments=False)
+        cEl = self.recentModel.get_variable_names(which='c', 
+                                                  include_assignments=False)
+        tEl = list(set(tEl)-set(mEl)-set(gEl)-set(lEl)-set(cEl))
+        kEl = list(set(gEl) | set(lEl))
+        return({"metabolites":mEl, "kineticParamsGlobal":gEl,
+                "kineticParamsLocal":lEl, "kineticParams":kEl,
+                "compartments":cEl, "assignments":tEl})
             
     def genPathCopasi(self,nameBase,suffix=".cps"):
         """generates a copasi path that isn't being used yet
@@ -418,7 +511,7 @@ class modelRunner:
         return mySum
     
     def genRefCopasiFile(self, filePath = None, adjustParams = None,
-                         setIndex = None):
+                         setIndex = None, sbmlPath = None):
         """generates a copasi file from the model optionaly adjusted by a
         paramiter estimation. Useful in testing things in copasi before
         coding.
@@ -444,6 +537,8 @@ class modelRunner:
                 model.InsertParameters(self.recentModel,
                                        df=adjustParams,
                                        index=setIndex,inplace=True)
+        if sbmlPath is not None:
+            self.recentModel.to_sbml(sbml_file=sbmlPath)
     
     def runSteadyStateFinder_TC(self, params=None, rocket=False, duration=1,
                                 genReactions=False, cycleMax=1,

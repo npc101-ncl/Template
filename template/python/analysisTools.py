@@ -31,7 +31,7 @@ def clusterParameterEstimation(PEDataFrame,testDistance=5,minInCluster=2):
        list in the -1 dict entry.
     """
     myScaledData = pp.StandardScaler().fit_transform(PEDataFrame.drop(
-            columns="RSS"))
+            columns="RSS", errors='ignore'))
     clustering = DBSCAN(eps=testDistance,
                         min_samples=minInCluster).fit(myScaledData)
     returnDict = {}
@@ -40,6 +40,15 @@ def clusterParameterEstimation(PEDataFrame,testDistance=5,minInCluster=2):
     for i in range(len(clustering.labels_)):
         returnDict[str(clustering.labels_[i])].append(i)
     return returnDict
+
+def pcaParameterEstimation(df,components='mle'):
+    """
+    
+    """
+    myScaledData = pp.StandardScaler().fit_transform(df.drop(
+            columns="RSS", errors='ignore'))
+    clustering = PCA(n_components = components).fit(myScaledData)
+    return clustering
 
 def RSSClusterEstimation(PEDataFrame):
     """Clustered paramiter estimationes

@@ -119,7 +119,9 @@ def breakSeriesByScale(mySerise,relativeScaleBreakPoint=0.1,
         else:
             innerList.append(index)
         lastVal=value
-        outerList = [myList for myList in outerList if len(myList)>=1]
+    if len(innerList)>0:
+        outerList.append(innerList)
+    outerList = [myList for myList in outerList if len(myList)>=1]
     return outerList
 
 class profileLikelyhoodVisualisor:
@@ -176,37 +178,49 @@ class profileLikelyhoodVisualisor:
                              in range(len(self.displayOrder))]
         self.displayOrder = [i for i in self.displayOrder if len(i)>0]
     
-    def plotProfiles(self,showRows,showLimit=5, save = None):
-        fig, axs = plt.subplots(len(showRows), showLimit,
-                                sharex=True, figsize=(12,10))
-        for row, i in zip(showRows,range(len(showRows))):
-            for col, j in zip([i["col"] for i in self.fitDict[row]],
-                              range(showLimit)):
-                axs[i][j].scatter(self.scaledDict[row][row],
-                   self.scaledDict[row][col])
-                axs[i][j].set_title(col)
-            axs[i][0].set_ylabel(row, size='large')
-        fig.tight_layout()
-        if save is not None:
-            fig.savefig(save)
+    def plotProfiles(self,showRows,showLimit=5, save = None,
+                     style = None):
+        if style is None:
+            myStyle = darkgrid
+        else:
+            myStyle = style
+        with sns.axes_style(style):
+            fig, axs = plt.subplots(len(showRows), showLimit,
+                                    sharex=True, figsize=(12,10))
+            for row, i in zip(showRows,range(len(showRows))):
+                for col, j in zip([i["col"] for i in self.fitDict[row]],
+                                  range(showLimit)):
+                    axs[i][j].scatter(self.scaledDict[row][row],
+                       self.scaledDict[row][col])
+                    axs[i][j].set_title(col)
+                axs[i][0].set_ylabel(row, size='large')
+            fig.tight_layout()
+            if save is not None:
+                fig.savefig(save)
             
-    def plotRSS(self,showVars,showLimit=5, save = None):
-        fig, axs = plt.subplots((len(showVars)-1)//showLimit+1,
-                                showLimit, sharex=True, figsize=(12,10))
-        axs = trim_axs(axs, len(showVars))
-        for myVar, i, ax in zip(showVars,range(len(showVars)),axs):
-            temp = self.aggDF[self.aggDF["variable"]==myVar]
-            temp = temp[[myVar,"RSS","LEVEL"]]
-            avalableLevels = temp["LEVEL"].unique()
-            for myLevel in avalableLevels:
-                ax.plot(temp[temp["LEVEL"]==myLevel][myVar],
-                        temp[temp["LEVEL"]==myLevel]["RSS"])
-            ax.set_yscale('log')
-            ax.set_xscale('log')
-            ax.set_title(myVar)
-        fig.tight_layout()
-        if save is not None:
-            fig.savefig(save)
+    def plotRSS(self,showVars,showLimit=5, save = None, style = None):
+        if style is None:
+            myStyle = darkgrid
+        else:
+            myStyle = style
+        with sns.axes_style(style):
+            fig, axs = plt.subplots((len(showVars)-1)//showLimit+1,
+                                    showLimit, sharex=True,
+                                    figsize=(12,10))
+            axs = trim_axs(axs, len(showVars))
+            for myVar, i, ax in zip(showVars,range(len(showVars)),axs):
+                temp = self.aggDF[self.aggDF["variable"]==myVar]
+                temp = temp[[myVar,"RSS","LEVEL"]]
+                avalableLevels = temp["LEVEL"].unique()
+                for myLevel in avalableLevels:
+                    ax.plot(temp[temp["LEVEL"]==myLevel][myVar],
+                            temp[temp["LEVEL"]==myLevel]["RSS"])
+                ax.set_yscale('log')
+                ax.set_xscale('log')
+                ax.set_title(myVar)
+            fig.tight_layout()
+            if save is not None:
+                fig.savefig(save)
 
 class timeCourseVisualiser:
     def __init__(self,data):
@@ -257,7 +271,8 @@ class timeCourseVisualiser:
             
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
                   compLines=None, save = None, xlim = None,
-                  forceYAxisZero = True, colourOverride = None):
+                  forceYAxisZero = True, colourOverride = None,
+                  style = None):
         """Plots grid if time course variables
         
         Creats grid of rainbow coloured plots for each variable in
@@ -292,45 +307,57 @@ class timeCourseVisualiser:
         if not isinstance(indexSelect,list):
             indexSelect = [indexSelect]
         if len(varSelect)<wrapNumber:
-            cols = math.floor(math.sqrt(len(varSelect)))
+            #cols = math.floor(math.sqrt(len(varSelect)))
+            cols = math.ceil(math.sqrt(len(varSelect)))
         else:
             cols = wrapNumber
         rows = math.ceil(len(varSelect)/cols)
-        fig, axs = plt.subplots(rows, cols, sharex=True, figsize=(12,10))
-        if (rows>1):
-            axs = trim_axs(axs, len(varSelect))
-        elif (cols==1):
-            axs = [axs]
-        if colourOverride is not None:
-            myColorMap = plt.get_cmap(name="cool")
+        if style is None:
+            myStyle = darkgrid
         else:
-            myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
-        for ax, theVar in zip(axs, varSelect):
-            ax.set_title(theVar)
-            df = self.longData
-            df = df[df['variable']==theVar]
-            if indexSelect is not None:
-                for theIndex, i in zip(indexSelect,range(len(indexSelect))):
-                    df2 = df[df['index']==theIndex]
-                    if colourOverride is not None:
-                        ax.plot(df2["Time"], df2["value"],linestyle='solid',
-                                color=myColorMap(colourOverride[i]))
-                    else:
-                        ax.plot(df2["Time"], df2["value"],linestyle='solid',
-                                color=myColorMap(i))
-            if compLines is not None:
-                dfB2 = dfB[dfB['variable']==theVar]
-                ax.plot(dfB2["Time"], dfB2["value"],"ko")
-            if xlim is not None:
-                ax.set_xlim(xlim)
-            if forceYAxisZero:
-                ax.set_ylim([0, None])
-        fig.tight_layout()
-        if save is not None:
-            fig.savefig(save)
+            myStyle = style
+        with sns.axes_style(style):
+            fig, axs = plt.subplots(rows, cols, sharex=True,
+                                    figsize=(12,10))
+            if (rows>1):
+                axs = trim_axs(axs, len(varSelect))
+            elif (cols==1):
+                axs = [axs]
+            if colourOverride is not None:
+                myColorMap = plt.get_cmap(name="cool")
+            else:
+                myColorMap = plt.get_cmap(name="hsv",
+                                          lut=len(indexSelect)+1)
+            for ax, theVar in zip(axs, varSelect):
+                ax.set_title(theVar)
+                df = self.longData
+                df = df[df['variable']==theVar]
+                if indexSelect is not None:
+                    for theIndex, i in zip(indexSelect,
+                                           range(len(indexSelect))):
+                        df2 = df[df['index']==theIndex]
+                        if colourOverride is not None:
+                            ax.plot(df2["Time"], df2["value"],
+                                    linestyle='solid',
+                                    color=myColorMap(colourOverride[i]))
+                        else:
+                            ax.plot(df2["Time"], df2["value"],
+                                    linestyle='solid',
+                                    color=myColorMap(i))
+                if compLines is not None:
+                    dfB2 = dfB[dfB['variable']==theVar]
+                    ax.plot(dfB2["Time"], dfB2["value"],"ko")
+                if xlim is not None:
+                    ax.set_xlim(xlim)
+                if forceYAxisZero:
+                    ax.set_ylim([0, None])
+            fig.tight_layout()
+            if save is not None:
+                fig.savefig(save)
             
     def barChart(self, time, indexSelect=None, varSelect=None,
-                 wrapNumber=5, compLines=None, save = None):
+                 wrapNumber=5, compLines=None, save = None,
+                 style = None):
         if compLines is not None:
             compVars=list(compLines.columns)
             dfB = compLines.copy()
@@ -351,32 +378,39 @@ class timeCourseVisualiser:
         else:
             cols = wrapNumber
         rows = math.ceil(len(varSelect)/cols)
-        fig, axs = plt.subplots(rows, cols, sharex=True, figsize=(12,10))
-        if (rows>1):
-            axs = trim_axs(axs, len(varSelect))
-        elif (cols==1):
-            axs = [axs]
-        # may need to add black
-        myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
-        
-        for ax, theVar in zip(axs, varSelect):
-            ax.set_title(theVar)
-            df = self.longData
-            df = df[df['variable']==theVar]
-            df = df[df['Time']==time]
-            df = df[df['index'].isin(indexSelect)]
-            bar_pos = np.arange(len(df['index']))
-            colorList = [[j for j,x in enumerate(indexSelect) if x == i][0]
-                         for i in df['index']]
-            colorList = [myColorMap(i) for i in colorList]
-            ax.bar(bar_pos, df["value"], color=colorList)
-            df = dfB[dfB["Time"] == time]
-            df = df[df['variable'] == theVar]
-            if len(df)==1:
-                ax.axhline(y=df.squeeze()["value"])
-        fig.tight_layout()
-        if save is not None:
-            fig.savefig(save)
+        if style is None:
+            myStyle = darkgrid
+        else:
+            myStyle = style
+        with sns.axes_style(style):
+            fig, axs = plt.subplots(rows, cols, sharex=True, 
+                                    figsize=(12,10))
+            if (rows>1):
+                axs = trim_axs(axs, len(varSelect))
+            elif (cols==1):
+                axs = [axs]
+            # may need to add black
+            myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
+            
+            for ax, theVar in zip(axs, varSelect):
+                ax.set_title(theVar)
+                df = self.longData
+                df = df[df['variable']==theVar]
+                df = df[df['Time']==time]
+                df = df[df['index'].isin(indexSelect)]
+                bar_pos = np.arange(len(df['index']))
+                colorList = [[j for j,x in enumerate(indexSelect) 
+                              if x == i][0] for i in df['index']]
+                colorList = [myColorMap(i) for i in colorList]
+                ax.bar(bar_pos, df["value"], color=colorList)
+                if compLines is not None:
+                    df = dfB[dfB["Time"] == time]
+                    df = df[df['variable'] == theVar]
+                    if len(df)==1:
+                        ax.axhline(y=df.squeeze()["value"])
+            fig.tight_layout()
+            if save is not None:
+                fig.savefig(save)
         
 class parameterEstimationVisualiser:
     def __init__(self,data):
@@ -472,7 +506,7 @@ class parameterEstimationVisualiser:
         if save is not None:
             vp.get_figure().savefig(save)
             
-    def waterFall(self,save = None, indexNames=None):
+    def waterFall(self,save = None, indexNames=None, style = None):
         """creates watrfall plot of RSS values in paramiter estimations
         
         Kwargs:
@@ -487,10 +521,15 @@ class parameterEstimationVisualiser:
             df["index"] = [indexNames[x] for x in df["index"]]
         else:
             df = self.RSSData
-        plt.figure()
-        lp = sns.lineplot(data=df,x="subIndex",y="RSS",hue="index")
-        if save is not None:
-            lp.get_figure().savefig(save)
+        if style is None:
+            myStyle = darkgrid
+        else:
+            myStyle = style
+        with sns.axes_style(style):
+            plt.figure()
+            lp = sns.lineplot(data=df,x="subIndex",y="RSS",hue="index")
+            if save is not None:
+                lp.get_figure().savefig(save)
             
     def refPointVsRSS(self, myRef, save=None, indexNames=None):
         names=list(myRef.index)

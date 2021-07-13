@@ -23,19 +23,45 @@ def getCmdLineArgs():
             outSet.add(arg)
     return outDict, outSet
 
+def convertType(value,tagetType):
+    if tagetType==int:
+        return int(value)
+    elif tagetType==float:
+        return float(value)
+    else:
+        return str(value)
+    
+def listify(arg):
+    if arg is None:
+        out = None
+    elif isinstance(arg,list):
+        out = arg
+    else:
+        out = [arg]
+    return out
+
 def parseCmdDict(cmdDict,defaults):
-    outList = []
+    outList = {}
     for key, default in defaults.items():
         if not key in cmdDict:
-            outList.append(default)
+            outList[key] = default
             continue
-        myType = type(defaults)
-        if myType==int:
-            outList.append(int(cmdDict[key]))
-        elif myType==float:
-            outList.append(float(cmdDict[key]))
-        else:
-            outList.append(str(cmdDict[key]))
+        myType = type(default)
+        outList[key] = convertType(cmdDict[key],myType)
+    return outList
+
+def extractCompositArgument(cmdArg,sep=":",dictSep=None,forceType=str):
+    myOut = cmdArg.split(sep)
+    if sep == dictSep:
+        myOut = {myOut[2*i]:myOut[2*i+1] for i in range(len(myOut)//2)}
+    elif dictSep is not None:
+        myOut = [i.split(dictSep,1) for i in myOut]
+        myOut = {i[0]:i[1] for i in myOut}
+    if isinstance(myOut,list):
+        myOut = [convertType(i,forceType) for i in myOut]
+    elif isinstance(myOut,dict):
+        myOut = {k:convertType(v,forceType) for k,v in myOut.items()}
+    return myOut
 
 def GFID(myDict):
     """Get First in Dictionary
