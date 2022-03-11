@@ -9,6 +9,7 @@ Created on Sat Dec 14 01:00:04 2019
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import math
 
@@ -27,6 +28,58 @@ def GFID(myDict):
        what ever was in the dictionary.
     """
     return (myDict[next(iter(myDict))])
+
+def unevenSubplots(number, col, sharex=True, sharey=False, 
+                   figsize=(12,10)):
+    fig = plt.figure(figsize=figsize)
+    rows = number//col-(number%col==0)+1
+    axs = []
+    for i in range(number):
+        if sharex and i>0 and (not sharey):
+            axs.append(fig.add_subplot(rows, col, i+1, sharex=axs[0]))
+        elif (not sharex) and i>0 and sharey:
+            axs.append(fig.add_subplot(rows, col, i+1, sharey=axs[0]))
+        elif sharex and i>0 and sharey:
+            axs.append(fig.add_subplot(rows, col, i+1, sharex=axs[0],
+                                       sharey=axs[0]))
+        else:
+            axs.append(fig.add_subplot(rows, col, i+1))
+    if sharey:
+        for i, ax in enumerate(axs):
+            if i%col>0:
+                for label in ax.get_yticklabels():
+                    label.set_visible(False)
+                ax.yaxis.offsetText.set_visible(False)
+                ax.yaxis.label.set_visible(False)
+    if sharex:
+        for i, ax in enumerate(axs):
+            if i+col < number:
+                for label in ax.get_xticklabels():
+                    label.set_visible(False)
+                ax.xaxis.offsetText.set_visible(False)
+                ax.xaxis.label.set_visible(False)
+    return fig, axs
+
+def plotPanels(df, xVal, yVal, panelVal, hueVal = None, save=None):
+    panVals = pd.unique(df[panelVal])
+    if hueVal is not None:
+        hueVals = pd.unique(df[hueVal])
+    else:
+        hueVals = [None]
+    rows = math.ceil(math.sqrt(3*len(panVals)/5))
+    cols = len(panVals)//rows+(len(panVals)%rows>0)
+    fig, axs = unevenSubplots(len(panVals), cols)
+    for pan, ax in zip(panVals, axs):
+        ax.set_title(pan)
+        for hueIndex, theHueVal in enumerate(hueVals):
+            subDF = df[df[panelVal]==pan]
+            if hueVal is not None: 
+                subDF = subDF[subDF[hueVal]==theHueVal]
+            for _, g in subDF.groupby((subDF[xVal].diff() < 0).cumsum()):
+                ax.plot(g[xVal],g[yVal],"C"+str(hueIndex))
+    fig.tight_layout()
+    if save is not None:
+        fig.savefig(save)
 
 def trim_axs(axs, N):
     """removes unwanted subplots from subplots function
@@ -181,7 +234,7 @@ class profileLikelyhoodVisualisor:
     def plotProfiles(self,showRows,showLimit=5, save = None,
                      style = None):
         if style is None:
-            myStyle = darkgrid
+            myStyle = "darkgrid"
         else:
             myStyle = style
         with sns.axes_style(style):
@@ -200,7 +253,7 @@ class profileLikelyhoodVisualisor:
             
     def plotRSS(self,showVars,showLimit=5, save = None, style = None):
         if style is None:
-            myStyle = darkgrid
+            myStyle = "darkgrid"
         else:
             myStyle = style
         with sns.axes_style(style):
@@ -272,7 +325,9 @@ class timeCourseVisualiser:
     def multiPlot(self,indexSelect=None,varSelect=None,wrapNumber=5,
                   compLines=None, save = None, xlim = None,
                   forceYAxisZero = True, colourOverride = None,
-                  style = None):
+                  style = None, legend = None, varAsAxis = False,
+                  xAxisLabel = None, yAxisLabel = None, figsize = (12,10),
+                  legendLoc = 'lower right'):
         """Plots grid if time course variables
         
         Creats grid of rainbow coloured plots for each variable in
@@ -291,7 +346,17 @@ class timeCourseVisualiser:
            save (str): A path to where to save the image. if omited image
                not saved
         """
-        if compLines is not None:
+        if isinstance(compLines,list):
+            compVars = [list(i.columns) for i in compLines]
+            dfB = [i.copy() for i in compLines]
+            for i in range(len(compLines)):
+                if "Time" not in compVars[i]:
+                    dfB[i]["Time"]=dfB[i].index
+                else:
+                    compVars[i].remove("Time")
+                dfB[i] = pd.melt(dfB[i], id_vars=["Time"],
+                   value_vars=compVars[i])
+        elif compLines is not None:
             compVars=list(compLines.columns)
             dfB = compLines.copy()
             if "Time" not in compVars:
@@ -313,12 +378,12 @@ class timeCourseVisualiser:
             cols = wrapNumber
         rows = math.ceil(len(varSelect)/cols)
         if style is None:
-            myStyle = darkgrid
+            myStyle = "darkgrid"
         else:
             myStyle = style
         with sns.axes_style(style):
             fig, axs = plt.subplots(rows, cols, sharex=True,
-                                    figsize=(12,10))
+                                        figsize=figsize)
             if (rows>1):
                 axs = trim_axs(axs, len(varSelect))
             elif (cols==1):
@@ -328,8 +393,22 @@ class timeCourseVisualiser:
             else:
                 myColorMap = plt.get_cmap(name="hsv",
                                           lut=len(indexSelect)+1)
-            for ax, theVar in zip(axs, varSelect):
-                ax.set_title(theVar)
+            for ax, theVar, j in zip(axs, varSelect, range(len(varSelect))):
+                if varAsAxis:
+                    if isinstance(yAxisLabel,list):
+                        ax.set_ylabel(theVar+" "+yAxisLabel[j])
+                    elif yAxisLabel is not None:
+                        ax.set_ylabel(theVar+" "+yAxisLabel)
+                    else:
+                        ax.set_ylabel(theVar)
+                else:
+                    ax.set_title(theVar)
+                    if isinstance(yAxisLabel,list):
+                        ax.set_ylabel(yAxisLabel[j])
+                    elif yAxisLabel is not None:
+                        ax.set_ylabel(yAxisLabel)
+                if xAxisLabel is not None:
+                    ax.set_xlabel(xAxisLabel)
                 df = self.longData
                 df = df[df['variable']==theVar]
                 if indexSelect is not None:
@@ -344,20 +423,46 @@ class timeCourseVisualiser:
                             ax.plot(df2["Time"], df2["value"],
                                     linestyle='solid',
                                     color=myColorMap(i))
-                if compLines is not None:
+                if isinstance(compLines,list):
+                    for i, theIndex in enumerate(indexSelect):
+                        dfB2 = dfB[theIndex][
+                                dfB[theIndex]['variable']==theVar]
+                        if colourOverride is not None:
+                            ax.plot(dfB2["Time"], dfB2["value"],"o",
+                                    color=myColorMap(colourOverride[i]))
+                        else:
+                            ax.plot(dfB2["Time"], dfB2["value"],"o",
+                                    color=myColorMap(i))
+                elif compLines is not None:
                     dfB2 = dfB[dfB['variable']==theVar]
                     ax.plot(dfB2["Time"], dfB2["value"],"ko")
                 if xlim is not None:
                     ax.set_xlim(xlim)
                 if forceYAxisZero:
                     ax.set_ylim([0, None])
+            if legend is not None:
+                if colourOverride is not None:
+                    custom_lines = [Line2D([0], [0], color=myColorMap(
+                            colourOverride[i]), lw=4)
+                            for i in range(len(indexSelect))]
+                else:
+                    custom_lines = [Line2D([0], [0], color=myColorMap(i),
+                                           lw=4)
+                            for i in range(len(indexSelect))]
+                if ((not isinstance(compLines,list)) and
+                    (compLines is not None)):
+                    custom_lines.append(Line2D([0], [0], 
+                                               color="k", lw=4))
+                fig.legend(custom_lines, legend,
+                           loc = legendLoc)
             fig.tight_layout()
             if save is not None:
                 fig.savefig(save)
             
     def barChart(self, time, indexSelect=None, varSelect=None,
                  wrapNumber=5, compLines=None, save = None,
-                 style = None):
+                 style = None, colourOveride = None, varOnAxis = False,
+                 spacing = None, figsize=(12,10)):
         if compLines is not None:
             compVars=list(compLines.columns)
             dfB = compLines.copy()
@@ -371,20 +476,24 @@ class timeCourseVisualiser:
             varSelect=list(self.longData['variable'].unique())
         if indexSelect is None:
             indexSelect=list(self.longData['index'].unique())
-        if not isinstance(indexSelect,list):
+        if isinstance(indexSelect,dict):
+            renameIndex = [v for _,v in indexSelect.items()]
+            indexSelect = [k for k,_ in indexSelect.items()]
+        elif not isinstance(indexSelect,list):
             indexSelect = [indexSelect]
+            renameIndex = None
         if len(varSelect)<wrapNumber:
             cols = math.floor(math.sqrt(len(varSelect)))
         else:
             cols = wrapNumber
         rows = math.ceil(len(varSelect)/cols)
         if style is None:
-            myStyle = darkgrid
+            myStyle = "darkgrid"
         else:
             myStyle = style
-        with sns.axes_style(style):
+        with sns.axes_style(myStyle):
             fig, axs = plt.subplots(rows, cols, sharex=True, 
-                                    figsize=(12,10))
+                                    figsize=figsize)
             if (rows>1):
                 axs = trim_axs(axs, len(varSelect))
             elif (cols==1):
@@ -393,16 +502,28 @@ class timeCourseVisualiser:
             myColorMap = plt.get_cmap(name="hsv", lut=len(indexSelect)+1)
             
             for ax, theVar in zip(axs, varSelect):
-                ax.set_title(theVar)
                 df = self.longData
                 df = df[df['variable']==theVar]
                 df = df[df['Time']==time]
                 df = df[df['index'].isin(indexSelect)]
-                bar_pos = np.arange(len(df['index']))
-                colorList = [[j for j,x in enumerate(indexSelect) 
-                              if x == i][0] for i in df['index']]
-                colorList = [myColorMap(i) for i in colorList]
+                if spacing is not None:
+                    bar_pos = np.arange(len(df['index'])+sum(spacing))
+                    bar_pos = [i for i,j in zip(bar_pos,spacing) if not j]
+                else:
+                    bar_pos = np.arange(len(df['index']))
+                if colourOveride is None:
+                    colorList = [[j for j,x in enumerate(indexSelect) 
+                                  if x == i][0] for i in df['index']]
+                    colorList = [myColorMap(i) for i in colorList]
+                else:
+                    colorList = colourOveride
                 ax.bar(bar_pos, df["value"], color=colorList)
+                if varOnAxis:
+                    ax.set_ylabel(theVar)
+                else:
+                    ax.set_title(theVar)
+                ax.set_xticks(bar_pos)
+                ax.set_xticklabels(renameIndex)
                 if compLines is not None:
                     df = dfB[dfB["Time"] == time]
                     df = df[df['variable'] == theVar]
@@ -522,7 +643,7 @@ class parameterEstimationVisualiser:
         else:
             df = self.RSSData
         if style is None:
-            myStyle = darkgrid
+            myStyle = "darkgrid"
         else:
             myStyle = style
         with sns.axes_style(style):
